@@ -1,38 +1,46 @@
 import Link from "next/link";
+import { auth } from "@/lib/auth";
+import { dashboardPathForRole } from "@/lib/dashboard-path";
 
-export default function Home() {
+export default async function Home() {
+  const session = await auth();
+
   return (
     <div className="flex flex-col gap-6">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">
           Assessment Brain
         </h1>
-        <p className="mt-2 text-black/60 dark:text-white/60">
-          Placeholder application shell. Pick a section to continue.
+        <p className="mt-2 max-w-xl text-black/60 dark:text-white/60">
+          A school assessment platform where teachers upload question
+          papers, generate AI-assisted rubrics, and evaluate student answer
+          sheets — while students submit their work and receive results.
         </p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      {session ? (
         <Link
-          href="/teacher/dashboard"
-          className="rounded-lg border border-black/10 p-5 hover:border-black/30 dark:border-white/15 dark:hover:border-white/30"
+          href={dashboardPathForRole(session.user.role)}
+          className="w-fit rounded-md bg-black px-4 py-2 text-sm font-medium text-white dark:bg-white dark:text-black"
         >
-          <h2 className="font-medium">Teacher</h2>
-          <p className="mt-1 text-sm text-black/60 dark:text-white/60">
-            Upload question papers, generate rubrics, review submissions.
-          </p>
+          Go to your dashboard
         </Link>
-
-        <Link
-          href="/student/dashboard"
-          className="rounded-lg border border-black/10 p-5 hover:border-black/30 dark:border-white/15 dark:hover:border-white/30"
-        >
-          <h2 className="font-medium">Student</h2>
-          <p className="mt-1 text-sm text-black/60 dark:text-white/60">
-            View assigned assessments and results.
-          </p>
-        </Link>
-      </div>
+      ) : (
+        <div className="flex gap-3">
+          <Link
+            href="/login"
+            className="rounded-md border border-black/15 px-4 py-2 text-sm font-medium hover:bg-black/5 dark:border-white/20 dark:hover:bg-white/10"
+          >
+            Login
+          </Link>
+          <Link
+            href="/register"
+            className="rounded-md bg-black px-4 py-2 text-sm font-medium text-white dark:bg-white dark:text-black"
+          >
+            Register
+          </Link>
+        </div>
+      )}
     </div>
   );
 }
