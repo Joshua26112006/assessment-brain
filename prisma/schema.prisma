@@ -28,12 +28,15 @@ enum Role {
 /// A single User model backs both teachers and students. Authentication is
 /// not implemented yet — this model only prepares for it.
 model User {
-  id        String   @id @default(cuid())
-  name      String
-  email     String   @unique
-  role      Role
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  role         Role
+  /// bcrypt/bcryptjs hash of the user's password. Credentials-based
+  /// authentication only (Auth.js) — never store or log the plaintext value.
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   // As TEACHER
   classesTaught      Class[]      @relation("ClassTeacher")
