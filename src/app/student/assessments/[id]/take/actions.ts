@@ -2,8 +2,11 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireStudentSession } from "@/lib/require-student";
+import { runPipelineForQuestionResponse } from "@/lib/assessment/pipeline";
+import { deriveAggregateSubmissionStatus, summarizeQuestionResponseStatuses } from "@/lib/pipeline/submissionStatus";
 
 export type ActionState = { error?: string; success?: boolean };
 
@@ -90,6 +93,62 @@ export async function submitAssessment(
   await prisma.submission.update({
     where: { id: submissionId },
     data: { status: "SUBMITTED", submittedAt: new Date() },
+  });
+
+  // Ownership was already established above (getEditableOwnedSubmission
+  // confirmed this submission belongs to the authenticated student) — this
+  // query is scoped by that same, already-verified submissionId, so a
+  // student can never trigger processing for anyone else's work.
+  const responses = await prisma.questionResponse.findMany({
+    where: { submissionId },
+    select: { id: true },
+  });
+
+  // Evaluate every response after this response has been sent to the
+  // student, so submitting doesn't make them wait for grading. `after()`
+  // is Next.js's built-in primitive for exactly this (runs even though
+  // this action calls redirect() below) — no queue, worker, or other
+  // background infrastructure needed.
+  after(async () => {
+    if (responses.length === 0) return;
+
+    await prisma.submission
+      .update({ where: { id: submissionId }, data: { status: "PROCESSING" } })
+      .catch(() => {});
+
+    // Promise.allSettled, not Promise.all: one response's pipeline failure
+    // must never prevent or roll back another response's successful
+    // result. Each runPipelineForQuestionResponse call is independently
+    // persisted, so isolation holds even if this rejects.
+    const outcomes = await Promise.allSettled(
+      responses.map((response) => runPipelineForQuestionResponse(response.id)),
+    );
+    for (const outcome of outcomes) {
+      if (outcome.status === "rejected") {
+        // The orchestrator already catches its own errors internally and
+        // persists FAILED on that one response — this only fires for a
+        // truly unexpected failure outside that. Logged, never rethrown,
+        // so it can't affect any other response's result.
+        console.error("Unexpected pipeline failure", outcome.reason);
+      }
+    }
+
+    // One aggregate write after the whole batch settles, using the
+    // existing SubmissionStatus enum values (PROCESSING/COMPLETED/
+    // NEEDS_REVIEW/FAILED already exist for exactly this) rather than a
+    // new column — re-derived fresh from QuestionResponse so it can't
+    // drift out of sync with the per-question outcomes.
+    const finalResponses = await prisma.questionResponse.findMany({
+      where: { submissionId },
+      select: { status: true },
+    });
+    const summary = summarizeQuestionResponseStatuses(finalResponses.map((r) => r.status));
+    await prisma.submission
+      .update({
+        where: { id: submissionId },
+        data: { status: deriveAggregateSubmissionStatus(summary) },
+      })
+      .catch(() => {});
   });
 
   revalidatePath("/student/assessments");

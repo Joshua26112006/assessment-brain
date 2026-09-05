@@ -20,6 +20,7 @@ export default async function StudentResultsPage() {
     include: {
       assessment: { select: { title: true, subject: true } },
       _count: { select: { questionResponses: true } },
+      questionResponses: { select: { status: true } },
     },
   });
 
@@ -64,6 +65,10 @@ export default async function StudentResultsPage() {
                   {submission.submittedAt
                     ? submission.submittedAt.toLocaleString()
                     : "—"}
+                  {" · "}
+                  {submission.questionResponses.filter((r) => r.status === "GRADED" || r.status === "NEEDS_REVIEW").length}
+                  {"/"}
+                  {submission._count.questionResponses} questions processed
                 </p>
               </Link>
             </li>

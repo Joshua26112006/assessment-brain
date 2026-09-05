@@ -21,6 +21,8 @@ export type QuestionId = ID;
 export type RubricId = ID;
 export type SubmissionId = ID;
 export type AnswerSheetId = ID;
+export type QuestionResponseId = ID;
+export type RubricVersionId = ID;
 
 // ---------------------------------------------------------------------------
 // Confidence
