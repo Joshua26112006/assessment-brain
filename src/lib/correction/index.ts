@@ -1,6 +1,7 @@
 import type {
   CheckpointCorrectionResult,
   CheckpointOutcome,
+  CheckpointVerification,
   CorrectionInput,
   CorrectionResult,
   InterpretedCheckpoint,
@@ -92,4 +93,65 @@ function evaluateCheckpoint(checkpoint: InterpretedCheckpoint, answerText: strin
 
 function round(value: number): number {
   return Math.round(value * 100) / 100;
+}
+
+/** The same deterministic marks-per-outcome rule evaluateCheckpoint uses, exposed for reuse by verification resolution. */
+export function marksForOutcome(outcome: CheckpointOutcome, maximumMarks: number): number {
+  if (outcome === "SATISFIED") return maximumMarks;
+  if (outcome === "PARTIALLY_SATISFIED") return round(maximumMarks / 2);
+  return 0;
+}
+
+const AI_TO_DETERMINISTIC_OUTCOME: Record<"satisfied" | "partially_satisfied" | "not_satisfied", CheckpointOutcome> = {
+  satisfied: "SATISFIED",
+  partially_satisfied: "PARTIALLY_SATISFIED",
+  not_satisfied: "NOT_SATISFIED",
+};
+
+/**
+ * Resolves final checkpoint outcomes by applying AI verification where it
+ * gave a definite recommendation, and falling back to the original
+ * deterministic outcome for any checkpoint verification didn't cover or
+ * explicitly marked "needs_review" — the deterministic evidence is never
+ * discarded, only potentially superseded by a verified one. Pure function;
+ * does not call the network or touch the database.
+ */
+export function applyVerifiedOutcomes(
+  checkpointResults: CheckpointCorrectionResult[],
+  verifications: CheckpointVerification[] | null,
+): { checkpoints: CheckpointCorrectionResult[]; total: number; anyNeedsReview: boolean } {
+  if (!verifications || verifications.length === 0) {
+    return {
+      checkpoints: checkpointResults,
+      total: round(checkpointResults.reduce((sum, c) => sum + c.marksAwarded, 0)),
+      anyNeedsReview: false,
+    };
+  }
+
+  const verificationByIndex = new Map(verifications.map((v) => [v.checkpointIndex, v]));
+  let anyNeedsReview = false;
+
+  const resolved = checkpointResults.map((checkpoint) => {
+    const verification = verificationByIndex.get(checkpoint.checkpointIndex);
+    if (!verification) return checkpoint;
+
+    if (verification.recommendedOutcome === "needs_review") {
+      anyNeedsReview = true;
+      return checkpoint; // preserve deterministic evidence; don't fabricate a definite outcome
+    }
+
+    const resolvedOutcome = AI_TO_DETERMINISTIC_OUTCOME[verification.recommendedOutcome];
+    return {
+      ...checkpoint,
+      outcome: resolvedOutcome,
+      marksAwarded: marksForOutcome(resolvedOutcome, checkpoint.maximumMarks),
+      confidence: verification.confidence,
+    };
+  });
+
+  return {
+    checkpoints: resolved,
+    total: round(resolved.reduce((sum, c) => sum + c.marksAwarded, 0)),
+    anyNeedsReview,
+  };
 }

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requireStudentSession } from "@/lib/require-student";
 import { getOwnedSubmissionOrNotFound } from "@/lib/student-assessment-access";
 import { parseAnnotationResult, parseGradingResult } from "@/lib/pipeline/parseResults";
+import type { AnnotationResult } from "@/types/pipeline";
 
 const STATUS_COPY: Record<string, string> = {
   SUBMITTED: "Your assessment has been submitted and is awaiting evaluation.",
@@ -36,6 +37,48 @@ export default async function SubmissionResultPage({
     submission.questionResponses.map((r) => [r.questionId, r]),
   );
 
+  // Overall score is computed only from questions with a genuinely
+  // confirmed (GRADED + outcome FINAL) grading result — a question that's
+  // still pending, needs review, or failed is excluded from the sum rather
+  // than counted as zero (Step 5: never silently treat missing as zero).
+  let confirmedAwarded = 0;
+  let confirmedMaximum = 0;
+  let confirmedCount = 0;
+  let pendingCount = 0;
+  let needsReviewCount = 0;
+  let failedCount = 0;
+
+  for (const question of submission.assessment.questions) {
+    const response = responseByQuestionId.get(question.id);
+    if (!response) {
+      pendingCount += 1;
+      continue;
+    }
+    if (response.status === "FAILED") {
+      failedCount += 1;
+      continue;
+    }
+    if (response.status === "NEEDS_REVIEW") {
+      needsReviewCount += 1;
+      continue;
+    }
+    if (response.status !== "GRADED") {
+      pendingCount += 1;
+      continue;
+    }
+    const grading = parseGradingResult(response.gradingResult);
+    if (!grading || grading.outcome !== "FINAL") {
+      pendingCount += 1;
+      continue;
+    }
+    confirmedAwarded += grading.awardedMarks;
+    confirmedMaximum += grading.maximumMarks || Number(question.maximumMarks);
+    confirmedCount += 1;
+  }
+
+  const totalQuestions = submission.assessment.questions.length;
+  const allConfirmed = confirmedCount === totalQuestions;
+
   return (
     <div className="mx-auto max-w-2xl">
       <p className="text-sm text-black/50 dark:text-white/50">
@@ -55,7 +98,31 @@ export default async function SubmissionResultPage({
         <p className="mt-2 text-sm text-black/70 dark:text-white/70">
           {STATUS_COPY[submission.status] ?? `Status: ${submission.status}`}
         </p>
+        {submission.status === "PROCESSING" && (
+          <p className="mt-2 text-xs text-black/50 dark:text-white/50">
+            This can take a little while. Refresh this page to check for updates.
+          </p>
+        )}
       </div>
+
+      {confirmedCount > 0 && (
+        <div className="mt-4 rounded-lg border border-black/10 p-4 dark:border-white/15">
+          <p className="text-xs font-medium uppercase tracking-wide text-black/50 dark:text-white/50">
+            {allConfirmed ? "Overall score" : "Score so far"}
+          </p>
+          <p className="mt-1 text-lg font-semibold">
+            {confirmedAwarded} / {confirmedMaximum} marks
+          </p>
+          {!allConfirmed && (
+            <p className="mt-1 text-xs text-black/60 dark:text-white/60">
+              Based on {confirmedCount} of {totalQuestions} question{totalQuestions === 1 ? "" : "s"} graded so far.{" "}
+              {pendingCount > 0 && `${pendingCount} still being evaluated. `}
+              {needsReviewCount > 0 && `${needsReviewCount} awaiting teacher review. `}
+              {failedCount > 0 && `${failedCount} could not be evaluated. `}
+            </p>
+          )}
+        </div>
+      )}
 
       <section className="mt-6 flex flex-col gap-4">
         {submission.assessment.questions.map((question) => {
@@ -175,8 +242,54 @@ function renderOutcome(
       <p className="text-xs font-medium uppercase tracking-wide text-green-800 dark:text-green-300">
         {grading.awardedMarks} / {grading.maximumMarks || maximumMarks} marks
       </p>
-      {annotation && annotation.entries.length > 0 && (
-        <ul className="mt-2 flex flex-col gap-1 text-xs text-green-900 dark:text-green-200">
+      {annotation && <FeedbackDetails annotation={annotation} />}
+    </div>
+  );
+}
+
+/**
+ * Renders whatever genuinely persisted feedback is available for a GRADED
+ * response — the deterministic per-checkpoint notes always exist, and the
+ * AI-written summary/strengths/improvements (Phase 2.2's aiAnnotation) are
+ * shown alongside them only when present. Never fabricated if missing.
+ */
+function FeedbackDetails({ annotation }: { annotation: AnnotationResult }) {
+  const aiAnnotation = annotation.aiAnnotation;
+
+  return (
+    <div className="mt-2 flex flex-col gap-2">
+      {aiAnnotation?.summary && (
+        <p className="text-xs text-green-900 dark:text-green-200">{aiAnnotation.summary}</p>
+      )}
+
+      {aiAnnotation && aiAnnotation.strengths.length > 0 && (
+        <div>
+          <p className="text-[11px] font-medium uppercase tracking-wide text-green-800 dark:text-green-300">
+            What went well
+          </p>
+          <ul className="mt-1 flex flex-col gap-0.5 text-xs text-green-900 dark:text-green-200">
+            {aiAnnotation.strengths.map((s, i) => (
+              <li key={i}>&bull; {s}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {aiAnnotation && aiAnnotation.improvements.length > 0 && (
+        <div>
+          <p className="text-[11px] font-medium uppercase tracking-wide text-green-800 dark:text-green-300">
+            Could be improved
+          </p>
+          <ul className="mt-1 flex flex-col gap-0.5 text-xs text-green-900 dark:text-green-200">
+            {aiAnnotation.improvements.map((s, i) => (
+              <li key={i}>&bull; {s}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {annotation.entries.length > 0 && (
+        <ul className="flex flex-col gap-1 text-xs text-green-900 dark:text-green-200">
           {annotation.entries.map((entry) => (
             <li key={entry.checkpointIndex}>&bull; {entry.note}</li>
           ))}

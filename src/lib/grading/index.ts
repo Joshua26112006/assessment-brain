@@ -29,5 +29,6 @@ export const gradeResponse: PipelineStage<GradingInput, GradingResult> = (input)
     awardedMarks,
     maximumMarks: input.maximumMarks,
     outcome: input.needsHumanReview ? "NEEDS_REVIEW" : "FINAL",
+    evidenceSource: input.evidenceSource,
   };
 };

@@ -1,16 +1,30 @@
 import { prisma } from "@/lib/prisma";
 import { readAnswer } from "@/lib/answerReading";
+import { readAnswerWithAi } from "@/lib/answerReading/ai";
 import { understandQuestion } from "@/lib/questionUnderstanding";
+import { understandQuestionWithAi } from "@/lib/questionUnderstanding/ai";
 import { interpretRubric } from "@/lib/rubricInterpretation";
-import { correctAnswer } from "@/lib/correction";
-import { annotateResponse } from "@/lib/annotation";
+import { interpretRubricWithAi } from "@/lib/rubricInterpretation/ai";
+import { applyVerifiedOutcomes, correctAnswer } from "@/lib/correction";
+import { evaluateIndependently } from "@/lib/correction/independentEvaluation";
+import { compareCheckpoints } from "@/lib/correction/comparison";
+import { verifyDisagreements } from "@/lib/correction/verification";
+import { annotateResponse, checkpointNeedsReview } from "@/lib/annotation";
+import { annotateWithAi } from "@/lib/annotation/ai";
 import { gradeResponse } from "@/lib/grading";
 import { detectNovelApproach } from "@/lib/novelApproach";
+import { detectNovelApproachWithAi } from "@/lib/novelApproach/ai";
 import { createReviewItemIfNeeded } from "@/lib/assessment/pipelineReviewItems";
 import type {
+  AiAnnotationResult,
+  AiNovelApproachResult,
+  AiQuestionUnderstandingResult,
+  AiRubricInterpretationResult,
+  AiVerificationResult,
   AnnotationResult,
   CorrectionResult,
   GradingResult,
+  IndependentAiEvaluationResult,
   NovelApproachDetectionResult,
   PipelineRunResult,
   StageExecutionRecord,
@@ -37,14 +51,35 @@ const TERMINAL_STATUSES = ["GRADED", "NEEDS_REVIEW", "FAILED"] as const;
  * database via the response's own id, and every id used afterward (rubric
  * version, checkpoints) comes from that loaded, server-controlled data.
  *
- * Runs the full deterministic evaluation chain for one QuestionResponse:
+ * Phase 2.1 established a purely deterministic chain:
  *
  *   Answer Reading -> Question Understanding -> Rubric Interpretation
  *     -> Deterministic Correction -> Annotation -> Grading
  *
- * with Novel Approach Detection alongside Correction. See src/types/pipeline.ts
- * for why only Correction/Annotation/Grading are persisted (the earlier
- * stages are cheap, deterministic derivations of already-durable data).
+ * Phase 2.2 layers real AI reasoning (via OpenRouter, src/lib/ai/) onto
+ * this WITHOUT replacing it:
+ *
+ *   Answer Reading (+ optional AI enrichment)
+ *     -> Question Understanding (+ optional AI enrichment)
+ *     -> Rubric Interpretation (+ optional AI clarification)
+ *     -> Deterministic Correction
+ *     -> Independent AI Evaluation (only if there's something to evaluate)
+ *     -> Deterministic Comparison (pure — no AI call)
+ *     -> AI Verification (only if Comparison found real disagreement)
+ *     -> resolve final checkpoint outcomes (deterministic function,
+ *        applies verification where available, keeps deterministic
+ *        evidence otherwise)
+ *     -> Grading (deterministic — the only place a final mark is decided)
+ *     -> Annotation (+ optional AI-written feedback, grounded in the
+ *        already-decided outcome)
+ *     -> Novel Approach Detection (+ optional AI opinion, never the gate)
+ *
+ * Every AI call is optional and independently fault-tolerant: a failure
+ * anywhere in the AI-assisted layer falls back to the Phase 2.1
+ * deterministic result for that piece, never the whole response. See
+ * src/types/pipeline.ts for why only Correction/Annotation/Grading are
+ * persisted (the earlier stages, deterministic or AI, are recomputed fresh
+ * each run rather than cached in a new column).
  */
 export async function runPipelineForQuestionResponse(
   questionResponseId: QuestionResponseId,
@@ -125,8 +160,9 @@ export async function runPipelineForQuestionResponse(
 
   // --- Idempotency / lightweight concurrency guard. ---
   // Already fully attempted (success, needs-review, or failed): don't
-  // recompute completed work. See TERMINAL_STATUSES for why this covers
-  // more than just GRADED.
+  // recompute completed work — and, since this now involves real AI
+  // spend, avoiding an unnecessary recompute matters more than it did in
+  // Phase 2.1. See TERMINAL_STATUSES for why this covers more than GRADED.
   const current = await prisma.questionResponse.findUnique({
     where: { id: questionResponseId },
     select: { status: true, correctionResult: true, annotationResult: true, gradingResult: true },
@@ -144,7 +180,8 @@ export async function runPipelineForQuestionResponse(
   // Claim this run atomically. Using the existing QuestionResponseStatus
   // enum as a simple advisory lock: if another run already claimed it (or
   // finished it) between our read above and now, this update affects zero
-  // rows and we back off rather than racing a concurrent evaluation.
+  // rows and we back off rather than racing a concurrent evaluation (and,
+  // now, racing duplicate AI spend).
   //
   // Known limitation: there's no dedicated pipeline-run table, so a process
   // that crashes mid-run leaves the response stuck at CORRECTING with no
@@ -159,20 +196,44 @@ export async function runPipelineForQuestionResponse(
   }
 
   const stageExecutions: StageExecutionRecord[] = [];
+  const maximumMarks = Number(response.question.maximumMarks);
 
   try {
-    const answerReadingResult = timeStage(stageExecutions, "ANSWER_READING", () =>
+    // --- 1. Answer Reading (deterministic, source of truth) ---
+    const answerReadingResult = await timeStage(stageExecutions, "ANSWER_READING", () =>
       readAnswer({ rawAnswer: response.studentAnswer }),
     );
 
-    timeStage(stageExecutions, "QUESTION_UNDERSTANDING", () =>
+    // AI enrichment only for a genuinely non-blank, well-formed answer —
+    // a blank/unreadable answer is already fully and correctly handled
+    // deterministically, so an AI call would just be wasted spend (Step 15).
+    const aiAnswerReading =
+      answerReadingResult.status === "READ"
+        ? await tryAiStage(stageExecutions, "ANSWER_READING_AI", () =>
+            readAnswerWithAi({
+              questionText: response.question.questionText,
+              normalizedAnswerText: answerReadingResult.normalizedText,
+            }),
+          )
+        : null;
+
+    // --- 2. Question Understanding (deterministic, source of truth) ---
+    // Not threaded into later stages (matches Phase 2.1: Correction only
+    // ever consumed rubric checkpoints + normalized answer text, not this
+    // stage's output) — still run for its own contract/observability value.
+    await timeStage(stageExecutions, "QUESTION_UNDERSTANDING", () =>
       understandQuestion({
         questionText: response.question.questionText,
-        maximumMarks: Number(response.question.maximumMarks),
+        maximumMarks,
       }),
     );
 
-    const rubricInterpretationResult = timeStage(stageExecutions, "RUBRIC_INTERPRETATION", () =>
+    const aiQuestionUnderstanding = await tryAiStage(stageExecutions, "QUESTION_UNDERSTANDING_AI", () =>
+      understandQuestionWithAi({ questionText: response.question.questionText, maximumMarks }),
+    );
+
+    // --- 3. Rubric Interpretation (deterministic, source of truth) ---
+    const rubricInterpretationResult = await timeStage(stageExecutions, "RUBRIC_INTERPRETATION", () =>
       interpretRubric({
         rubricVersionId: rubricVersion.id,
         solutionApproaches: rubricVersion.solutionApproaches,
@@ -180,7 +241,18 @@ export async function runPipelineForQuestionResponse(
       }),
     );
 
-    const correctionResult = timeStage(stageExecutions, "DETERMINISTIC_CORRECTION", () =>
+    const aiRubricInterpretation =
+      rubricInterpretationResult.checkpoints.length > 0
+        ? await tryAiStage(stageExecutions, "RUBRIC_INTERPRETATION_AI", () =>
+            interpretRubricWithAi({
+              questionText: response.question.questionText,
+              checkpoints: rubricInterpretationResult.checkpoints,
+            }),
+          )
+        : null;
+
+    // --- 4. Deterministic Correction (unchanged Phase 2.1 evidence engine) ---
+    const correctionResult = await timeStage(stageExecutions, "DETERMINISTIC_CORRECTION", () =>
       correctAnswer({
         rubricVersionId: rubricVersion.id,
         normalizedAnswerText: answerReadingResult.normalizedText,
@@ -188,40 +260,166 @@ export async function runPipelineForQuestionResponse(
       }),
     );
 
-    const annotationResult = timeStage(stageExecutions, "ANNOTATION", () =>
-      annotateResponse({ checkpointResults: correctionResult.checkpointResults }),
+    // --- 5. Independent AI Evaluation — only if there's something real to evaluate. ---
+    const canEvaluate = answerReadingResult.status === "READ" && rubricInterpretationResult.checkpoints.length > 0;
+    const aiEvaluation: IndependentAiEvaluationResult | null = canEvaluate
+      ? await tryAiStage(stageExecutions, "INDEPENDENT_AI_EVALUATION", () =>
+          evaluateIndependently({
+            questionText: response.question.questionText,
+            normalizedAnswerText: answerReadingResult.normalizedText,
+            checkpoints: rubricInterpretationResult.checkpoints,
+            maximumMarks,
+          }),
+        )
+      : null;
+
+    // --- 6. Deterministic Comparison — pure, always computed, no AI call. ---
+    const comparisonResult = await timeStage(stageExecutions, "DETERMINISTIC_COMPARISON", () =>
+      compareCheckpoints(correctionResult.checkpointResults, aiEvaluation?.checkpointEvaluations ?? null),
     );
 
-    const gradingResult = timeStage(stageExecutions, "GRADING", () =>
+    // --- 7. AI Verification — only when Comparison found something worth adjudicating. ---
+    const verification: AiVerificationResult | null =
+      comparisonResult.disagreementCount > 0
+        ? await tryAiStage(stageExecutions, "AI_VERIFICATION", () =>
+            verifyDisagreements({
+              questionText: response.question.questionText,
+              normalizedAnswerText: answerReadingResult.normalizedText,
+              deterministicResults: correctionResult.checkpointResults,
+              comparisons: comparisonResult.checkpointComparisons,
+            }),
+          )
+        : null;
+
+    // --- 8. Resolve final checkpoint outcomes (deterministic function). ---
+    const resolved = applyVerifiedOutcomes(
+      correctionResult.checkpointResults,
+      verification?.checkpointVerifications ?? null,
+    );
+    const deterministicNeedsReview = resolved.checkpoints.some(checkpointNeedsReview);
+    const needsHumanReview = verification
+      ? verification.requiresReview || resolved.anyNeedsReview
+      : deterministicNeedsReview;
+    const evidenceSource = verification ? "AI_VERIFIED" : "DETERMINISTIC";
+
+    // --- 9. Grading — deterministic, the ONLY place a final mark is decided. ---
+    const gradingResult = await timeStage(stageExecutions, "GRADING", () =>
       gradeResponse({
-        correctionTotal: correctionResult.correctionTotal,
-        maximumMarks: Number(response.question.maximumMarks),
-        needsHumanReview: annotationResult.needsHumanReview,
+        correctionTotal: resolved.total,
+        maximumMarks,
+        needsHumanReview,
+        evidenceSource,
       }),
     );
 
-    // Novel approach detection runs alongside correction and must never
-    // break the main grading result if it fails.
+    // --- 10. Annotation (deterministic) — now explains the resolved/graded outcome. ---
+    const annotationResult = await timeStage(stageExecutions, "ANNOTATION", () =>
+      annotateResponse({ checkpointResults: resolved.checkpoints }),
+    );
+
+    // Skip the AI-written feedback call for a blank answer — nothing
+    // substantive to give feedback on beyond what deterministic annotation
+    // already says.
+    const aiAnnotation: AiAnnotationResult | null =
+      answerReadingResult.status !== "BLANK"
+        ? await tryAiStage(stageExecutions, "ANNOTATION_AI", () =>
+            annotateWithAi({
+              questionText: response.question.questionText,
+              normalizedAnswerText: answerReadingResult.normalizedText,
+              resolvedCheckpoints: resolved.checkpoints,
+              awardedMarks: gradingResult.awardedMarks,
+              maximumMarks,
+            }),
+          )
+        : null;
+
+    // --- Assemble the persisted (extended) correction/annotation results. ---
+    const persistedCorrectionResult: CorrectionResult = {
+      ...correctionResult,
+      aiContext: {
+        answerReading: aiAnswerReading,
+        questionUnderstanding: aiQuestionUnderstanding as AiQuestionUnderstandingResult | null,
+        rubricInterpretation: aiRubricInterpretation as AiRubricInterpretationResult | null,
+      },
+      aiEvaluation,
+      comparison: comparisonResult,
+      verification,
+      resolvedCheckpointResults: resolved.checkpoints,
+      resolvedCorrectionTotal: resolved.total,
+    };
+
+    const persistedAnnotationResult: AnnotationResult = {
+      ...annotationResult,
+      aiAnnotation,
+    };
+
+    const finalStatus = gradingResult.outcome === "NEEDS_REVIEW" ? "NEEDS_REVIEW" : "GRADED";
+
+    await prisma.questionResponse.update({
+      where: { id: questionResponseId },
+      data: {
+        status: finalStatus,
+        correctionResult: persistedCorrectionResult as unknown as object,
+        annotationResult: persistedAnnotationResult as unknown as object,
+        gradingResult: gradingResult as unknown as object,
+      },
+    });
+
+    if (finalStatus === "NEEDS_REVIEW") {
+      await createReviewItemIfNeeded({
+        reason: "UNCERTAIN_CORRECTION",
+        assessmentId: response.question.assessmentId,
+        questionId: response.questionId,
+        submissionId: response.submissionId,
+        questionResponseId,
+        context: {
+          annotation: persistedAnnotationResult,
+          correctionTotal: resolved.total,
+          evidenceSource,
+        },
+      });
+    }
+
+    // --- 11. Novel Approach Detection (deterministic gate, unchanged rules). ---
     let novelApproachResult: NovelApproachDetectionResult | null = null;
     let novelApproachCandidateCreated = false;
     try {
-      novelApproachResult = timeStage(stageExecutions, "NOVEL_APPROACH_DETECTION", () =>
+      novelApproachResult = await timeStage(stageExecutions, "NOVEL_APPROACH_DETECTION", () =>
         detectNovelApproach({
           normalizedAnswerText: answerReadingResult.normalizedText,
           knownApproaches: rubricInterpretationResult.approaches,
         }),
       );
 
+      // AI opinion is attached as context only — it can never widen or
+      // substitute for the deterministic gate below.
+      const aiNovelApproach: AiNovelApproachResult | null =
+        novelApproachResult.isNovel && answerReadingResult.status === "READ"
+          ? await tryAiStage(stageExecutions, "NOVEL_APPROACH_AI", () =>
+              detectNovelApproachWithAi({
+                questionText: response.question.questionText,
+                normalizedAnswerText: answerReadingResult.normalizedText,
+                knownApproaches: rubricInterpretationResult.approaches,
+              }),
+            )
+          : null;
+
       if (novelApproachResult.isNovel && novelApproachResult.confidence.level !== "low") {
         // A candidate for teacher review — never an automatic rubric change.
+        const persistedNovelApproachResult: NovelApproachDetectionResult = {
+          ...novelApproachResult,
+          aiAssistance: aiNovelApproach,
+        };
+
         await prisma.novelApproachCandidate.create({
           data: {
             questionResponseId,
             rubricVersionId: rubricVersion.id,
-            approachData: novelApproachResult as unknown as object,
+            approachData: persistedNovelApproachResult as unknown as object,
           },
         });
         novelApproachCandidateCreated = true;
+        novelApproachResult = persistedNovelApproachResult;
 
         // Surface the candidate through the existing teacher review
         // workflow — otherwise it would only ever be visible by querying
@@ -232,7 +430,7 @@ export async function runPipelineForQuestionResponse(
           questionId: response.questionId,
           submissionId: response.submissionId,
           questionResponseId,
-          context: { novelApproach: novelApproachResult },
+          context: { novelApproach: persistedNovelApproachResult },
         });
       }
     } catch (novelApproachError) {
@@ -245,36 +443,13 @@ export async function runPipelineForQuestionResponse(
       });
     }
 
-    const finalStatus = gradingResult.outcome === "NEEDS_REVIEW" ? "NEEDS_REVIEW" : "GRADED";
-
-    await prisma.questionResponse.update({
-      where: { id: questionResponseId },
-      data: {
-        status: finalStatus,
-        correctionResult: correctionResult as unknown as object,
-        annotationResult: annotationResult as unknown as object,
-        gradingResult: gradingResult as unknown as object,
-      },
-    });
-
-    if (finalStatus === "NEEDS_REVIEW") {
-      await createReviewItemIfNeeded({
-        reason: "UNCERTAIN_CORRECTION",
-        assessmentId: response.question.assessmentId,
-        questionId: response.questionId,
-        submissionId: response.submissionId,
-        questionResponseId,
-        context: { annotation: annotationResult, correctionTotal: correctionResult.correctionTotal },
-      });
-    }
-
     return {
       questionResponseId,
       status: finalStatus === "NEEDS_REVIEW" ? "NEEDS_REVIEW" : "COMPLETED",
       rubricVersionId: rubricVersion.id,
       stageExecutions,
-      correction: correctionResult,
-      annotation: annotationResult,
+      correction: persistedCorrectionResult,
+      annotation: persistedAnnotationResult,
       grading: gradingResult,
       novelApproach: novelApproachResult,
       novelApproachCandidateCreated,
@@ -314,13 +489,14 @@ export async function runPipelineForQuestionResponse(
   }
 }
 
-function timeStage<TOutput extends { warnings: string[] }>(
+/** For deterministic (never-throwing) stages: times execution and records a COMPLETED entry. */
+async function timeStage<TOutput extends { warnings: string[] }>(
   executions: StageExecutionRecord[],
   stage: StageExecutionRecord["stage"],
-  run: () => TOutput,
-): TOutput {
+  run: () => TOutput | Promise<TOutput>,
+): Promise<TOutput> {
   const startedAt = new Date().toISOString();
-  const result = run();
+  const result = await run();
   executions.push({
     stage,
     outcome: "COMPLETED",
@@ -329,6 +505,42 @@ function timeStage<TOutput extends { warnings: string[] }>(
     warnings: result.warnings,
   });
   return result;
+}
+
+/**
+ * For optional AI-assisted stages: never throws out of this function. On
+ * failure (network error, retry exhaustion, malformed/unvalidatable JSON —
+ * see src/lib/ai/), records a FAILED stage execution with the failure
+ * message as a warning and returns null so the caller falls back to
+ * deterministic behavior. This is the single place Step 14's "AI failures
+ * must not break the pipeline" is enforced structurally.
+ */
+async function tryAiStage<TOutput extends { warnings: string[] }>(
+  executions: StageExecutionRecord[],
+  stage: StageExecutionRecord["stage"],
+  run: () => Promise<TOutput>,
+): Promise<TOutput | null> {
+  const startedAt = new Date().toISOString();
+  try {
+    const result = await run();
+    executions.push({
+      stage,
+      outcome: "COMPLETED",
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      warnings: result.warnings,
+    });
+    return result;
+  } catch (error) {
+    executions.push({
+      stage,
+      outcome: "FAILED",
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      warnings: [errorMessage(error)],
+    });
+    return null;
+  }
 }
 
 function errorMessage(error: unknown): string {
