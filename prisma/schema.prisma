@@ -1,0 +1,405 @@
+// Assessment Brain — database schema (foundation only).
+//
+// This schema models the core entities needed to move an assessment through
+// its lifecycle (teacher creates assessment -> questions -> rubrics ->
+// publish -> student submissions -> per-question processing -> results).
+// The Assessment Brain intelligence pipeline itself (question understanding,
+// rubric generation, answer reading, correction, annotation, grading) is
+// NOT implemented here — pipeline outputs are represented as JSON fields to
+// be filled in by future work.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// User
+// ---------------------------------------------------------------------------
+
+enum Role {
+  TEACHER
+  STUDENT
+}
+
+/// A single User model backs both teachers and students. Authentication is
+/// not implemented yet — this model only prepares for it.
+model User {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  role      Role
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // As TEACHER
+  classesTaught      Class[]      @relation("ClassTeacher")
+  assessmentsCreated Assessment[] @relation("AssessmentTeacher")
+  reviewsPerformed   ReviewItem[] @relation("ReviewItemReviewer")
+
+  // As STUDENT
+  classMemberships ClassMembership[]
+  submissions      Submission[]
+
+  @@index([role])
+}
+
+// ---------------------------------------------------------------------------
+// Class + membership
+// ---------------------------------------------------------------------------
+
+/// A class managed by one teacher. Students are linked via ClassMembership
+/// rather than a direct relation, since a student may belong to many classes.
+model Class {
+  id        String   @id @default(cuid())
+  name      String
+  grade     String
+  section   String?
+  teacherId String
+  teacher   User     @relation("ClassTeacher", fields: [teacherId], references: [id], onDelete: Restrict)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships ClassMembership[]
+  assessments Assessment[]
+}
+
+/// Join model between Class and User (students). Deliberately explicit
+/// (rather than an implicit Prisma many-to-many) so membership can carry its
+/// own timestamp and be extended later (e.g. joinedAt, status) without a
+/// migration to a different relation shape.
+model ClassMembership {
+  id        String   @id @default(cuid())
+  classId   String
+  class     Class    @relation(fields: [classId], references: [id], onDelete: Cascade)
+  studentId String
+  student   User     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([classId, studentId])
+  @@index([studentId])
+}
+
+// ---------------------------------------------------------------------------
+// Assessment + Question
+// ---------------------------------------------------------------------------
+
+enum AssessmentStatus {
+  DRAFT
+  RUBRIC_GENERATING
+  RUBRIC_REVIEW
+  READY
+  PUBLISHED
+  PROCESSING
+  RESULTS_AVAILABLE
+  CLOSED
+}
+
+model Assessment {
+  id         String           @id @default(cuid())
+  title      String
+  subject    String
+  grade      String
+  curriculum String
+  status     AssessmentStatus @default(DRAFT)
+  teacherId  String
+  teacher    User             @relation("AssessmentTeacher", fields: [teacherId], references: [id], onDelete: Restrict)
+  classId    String
+  class      Class            @relation(fields: [classId], references: [id], onDelete: Restrict)
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+
+  questions   Question[]
+  submissions Submission[]
+  reviewItems ReviewItem[]
+
+  @@index([status])
+  @@index([classId])
+}
+
+/// One question within an assessment. Structured, AI-extracted question data
+/// (e.g. parsed sub-parts, detected question type) is intentionally deferred
+/// until question understanding is implemented.
+model Question {
+  id             String     @id @default(cuid())
+  assessmentId   String
+  assessment     Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  questionNumber Int
+  questionText   String     @db.Text
+  maximumMarks   Decimal    @db.Decimal(5, 2)
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  rubric      Rubric?
+  responses   QuestionResponse[]
+  reviewItems ReviewItem[]
+
+  @@unique([assessmentId, questionNumber])
+}
+
+// ---------------------------------------------------------------------------
+// Rubric + RubricVersion
+// ---------------------------------------------------------------------------
+
+enum RubricVersionStatus {
+  DRAFT
+  ACTIVE
+  SUPERSEDED
+}
+
+/// A Rubric is the logical container for one Question's rubric history. It
+/// does not itself hold marking content — that lives on immutable
+/// RubricVersion rows. `activeVersion` and `versions` are two distinct
+/// relations to RubricVersion and must be named separately:
+///   - `versions`: one-to-many, RubricVersion.rubricId -> Rubric.id
+///     (every version this rubric has ever had)
+///   - `activeVersion`: one-to-one, Rubric.(activeVersionId, id) ->
+///     RubricVersion.(id, rubricId) — a composite FK, so the database
+///     itself (not just application code) guarantees the active version
+///     actually belongs to THIS rubric, not some other one. A plain
+///     single-column FK to RubricVersion.id could only confirm the row
+///     exists, not that its rubricId matches. With MATCH SIMPLE (Postgres's
+///     default), the composite FK is skipped entirely while
+///     activeVersionId is null, so "no active version yet" remains valid.
+///     onDelete is Restrict (not SetNull): one of the local columns in this
+///     composite FK is Rubric.id itself, which can never be null, so
+///     SetNull is not a valid option here — a version currently marked
+///     active must be reassigned or cleared before it can be deleted.
+/// This keeps "which version is active" as an explicit, nullable pointer
+/// (a rubric may have no active version yet) instead of inferring it from
+/// version status, so exactly one active version can never become ambiguous.
+model Rubric {
+  id              String         @id @default(cuid())
+  questionId      String         @unique
+  question        Question       @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  activeVersionId String?        @unique
+  activeVersion   RubricVersion? @relation("ActiveRubricVersion", fields: [activeVersionId, id], references: [id, rubricId], onDelete: Restrict)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  versions RubricVersion[] @relation("RubricVersions")
+
+  /// Required by Prisma for the composite FK above (a one-to-one relation's
+  /// defining side must have a compound-unique on its full field list).
+  /// activeVersionId alone stays @unique, so "at most one Rubric may claim
+  /// a given RubricVersion as active" is still separately enforced.
+  @@unique([activeVersionId, id])
+}
+
+/// An immutable version of a rubric. Once created, a version's content
+/// should not be edited in place — a change produces a new version instead.
+/// `solutionApproaches` and `markingCheckpoints` are JSON because their
+/// internal shape is AI-generated and expected to evolve; they don't yet
+/// need relational querying of their own.
+model RubricVersion {
+  id                 String              @id @default(cuid())
+  rubricId           String
+  rubric             Rubric              @relation("RubricVersions", fields: [rubricId], references: [id], onDelete: Cascade)
+  versionNumber      Int
+  status             RubricVersionStatus @default(DRAFT)
+  solutionApproaches Json?
+  markingCheckpoints Json?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  /// Reverse side of Rubric.activeVersion — present only if this version is
+  /// currently the active one for its rubric.
+  activeForRubric         Rubric?                  @relation("ActiveRubricVersion")
+  questionResponses       QuestionResponse[]
+  novelApproachCandidates NovelApproachCandidate[]
+
+  @@unique([rubricId, versionNumber])
+  /// Backs the composite FK from Rubric.activeVersion — lets a foreign key
+  /// pin down a specific (id, rubricId) pair, not just id alone.
+  @@unique([id, rubricId])
+  @@index([status])
+}
+
+// ---------------------------------------------------------------------------
+// Submission + QuestionResponse
+// ---------------------------------------------------------------------------
+
+enum SubmissionStatus {
+  DRAFT
+  SUBMITTED
+  PROCESSING
+  COMPLETED
+  NEEDS_REVIEW
+  FAILED
+}
+
+/// One student's answer paper for one assessment. A unique constraint on
+/// (assessmentId, studentId) enforces the current assumption of a single
+/// active submission per student per assessment.
+model Submission {
+  id           String           @id @default(cuid())
+  assessmentId String
+  assessment   Assessment       @relation(fields: [assessmentId], references: [id], onDelete: Restrict)
+  studentId    String
+  student      User             @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  status       SubmissionStatus @default(DRAFT)
+  submittedAt  DateTime?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  questionResponses QuestionResponse[]
+  reviewItems       ReviewItem[]
+
+  @@unique([assessmentId, studentId])
+  @@index([status])
+}
+
+enum QuestionResponseStatus {
+  PENDING
+  ANSWER_EXTRACTED
+  CORRECTING
+  CORRECTED
+  ANNOTATING
+  ANNOTATED
+  GRADING
+  GRADED
+  NEEDS_REVIEW
+  FAILED
+}
+
+/// One student's response to one question within one submission. This is
+/// the unit the Assessment Brain pipeline processes independently, and the
+/// row historical evaluations must be reproducible from — hence the
+/// (nullable, filled in once correction runs) pointer to the exact
+/// RubricVersion used, rather than a pointer to the mutable Rubric.
+///
+/// Pipeline outputs (extracted answer, correction/annotation/grading
+/// results) are stored as JSON for now rather than normalized tables, since
+/// their shape is still evolving and doesn't yet need relational querying.
+model QuestionResponse {
+  id           String                 @id @default(cuid())
+  submissionId String
+  submission   Submission             @relation(fields: [submissionId], references: [id], onDelete: Restrict)
+  questionId   String
+  question     Question               @relation(fields: [questionId], references: [id], onDelete: Restrict)
+  status       QuestionResponseStatus @default(PENDING)
+
+  // Future pipeline outputs, per question.
+  studentAnswer    Json?
+  correctionResult Json?
+  annotationResult Json?
+  gradingResult    Json?
+
+  /// The exact rubric version this response was (or will be) evaluated
+  /// against, so results remain reproducible even after the rubric's active
+  /// version later changes. Null until correction has run.
+  rubricVersionUsedId String?
+  rubricVersionUsed   RubricVersion? @relation(fields: [rubricVersionUsedId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  reviewItems             ReviewItem[]
+  novelApproachCandidates NovelApproachCandidate[]
+
+  @@unique([submissionId, questionId])
+  @@index([questionId])
+  @@index([status])
+  @@index([rubricVersionUsedId])
+}
+
+// ---------------------------------------------------------------------------
+// ReviewItem
+// ---------------------------------------------------------------------------
+
+enum ReviewReason {
+  NOVEL_APPROACH
+  AMBIGUOUS_EXTRACTION
+  UNCERTAIN_CORRECTION
+  VERIFICATION_FAILURE
+  AMBIGUOUS_ANNOTATION
+  UNDETERMINED_GRADING
+  OTHER
+}
+
+enum ReviewItemStatus {
+  PENDING
+  IN_REVIEW
+  RESOLVED
+  DISMISSED
+}
+
+/// A generic unresolved case surfaced by the pipeline for teacher review.
+/// All entity relationships are optional and independent (SetNull on
+/// delete) because a ReviewItem is metadata *about* other records, not an
+/// owned child of any single one of them — e.g. a review item can be scoped
+/// to a whole assessment (no specific submission yet) or to one exact
+/// question response, without forcing the unused foreign keys to be
+/// populated with meaningless values.
+model ReviewItem {
+  id     String           @id @default(cuid())
+  reason ReviewReason
+  status ReviewItemStatus @default(PENDING)
+
+  assessmentId String?
+  assessment   Assessment? @relation(fields: [assessmentId], references: [id], onDelete: SetNull)
+
+  questionId String?
+  question   Question? @relation(fields: [questionId], references: [id], onDelete: SetNull)
+
+  submissionId String?
+  submission   Submission? @relation(fields: [submissionId], references: [id], onDelete: SetNull)
+
+  questionResponseId String?
+  questionResponse   QuestionResponse? @relation(fields: [questionResponseId], references: [id], onDelete: SetNull)
+
+  /// Snapshot of whatever context led to this review case (e.g. candidate
+  /// extraction options, conflicting correction signals). Shape varies by
+  /// reason, hence JSON.
+  context Json?
+
+  reviewerId String?
+  reviewer   User?   @relation("ReviewItemReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+  decision   Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([reason])
+}
+
+// ---------------------------------------------------------------------------
+// NovelApproachCandidate
+// ---------------------------------------------------------------------------
+
+enum NovelApproachStatus {
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+  ACTIVATED
+}
+
+/// A verified student approach that may eventually be folded into a future
+/// RubricVersion. Deliberately a separate, review-gated table rather than a
+/// direct edit to RubricVersion content: a candidate must never silently
+/// change an existing (especially ACTIVE) rubric version — it only becomes
+/// part of the rubric once explicitly approved and activated, at which
+/// point that action creates a new RubricVersion.
+model NovelApproachCandidate {
+  id     String              @id @default(cuid())
+  status NovelApproachStatus @default(PENDING_REVIEW)
+
+  questionResponseId String
+  questionResponse   QuestionResponse @relation(fields: [questionResponseId], references: [id], onDelete: Cascade)
+
+  /// The rubric version this approach was found to fall outside of.
+  rubricVersionId String
+  rubricVersion   RubricVersion @relation(fields: [rubricVersionId], references: [id], onDelete: Restrict)
+
+  approachData Json
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([rubricVersionId])
+}
