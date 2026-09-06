@@ -69,12 +69,14 @@ export function PageHeader({
 }
 
 export function Section({
+  id,
   title,
   description,
   actions,
   children,
   className = "",
 }: {
+  id?: string;
   title?: string;
   description?: ReactNode;
   actions?: ReactNode;
@@ -82,7 +84,7 @@ export function Section({
   className?: string;
 }) {
   return (
-    <section className={className}>
+    <section id={id} className={className}>
       {(title || actions) && (
         <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
           <div>

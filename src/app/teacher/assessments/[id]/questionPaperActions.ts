@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { requireTeacherSession } from "@/lib/require-teacher";
 import { findCurrentQuestionPaperForTeacher } from "@/lib/questionPaperAccess";
 import { runQuestionPaperExtraction } from "@/lib/questionPaperExtraction";
+import { generateRubricsForQuestions } from "@/lib/rubricGeneration";
 
 export type QuestionPaperActionState = { error?: string; success?: boolean };
 
@@ -99,12 +100,21 @@ function parseDraftQuestions(raw: string): { number: number; text: string; marks
  * Approves a reviewed extraction draft: validates the final (teacher-edited)
  * data again server-side (Step 12.1 — never trusts what was merely
  * displayed), then creates the real Assessment Questions from it in one
- * transaction. Idempotent by design: a second approval click (double-click,
- * or a resubmitted form after the first response already landed) is
- * detected via the QuestionPaper's own status and treated as a no-op
- * success rather than creating duplicate Questions or surfacing a scary
- * error for what the teacher experiences as "nothing happened, so I tried
- * again."
+ * transaction, each with a companion Rubric row (status PENDING) so the
+ * detail page can immediately show "generating a rubric" rather than "no
+ * rubric" while the background AI generation below is still starting up.
+ * Idempotent by design: a second approval click (double-click, or a
+ * resubmitted form after the first response already landed) is detected via
+ * the QuestionPaper's own status and treated as a no-op success rather than
+ * creating duplicate Questions or surfacing a scary error for what the
+ * teacher experiences as "nothing happened, so I tried again."
+ *
+ * Phase 4.1: once the transaction commits, kicks off automatic AI rubric
+ * generation for every newly-created question in the background (after the
+ * response is sent — the teacher isn't made to wait), mirroring the exact
+ * background-task pattern already used for extraction itself and for
+ * handwritten-submission processing. The teacher is never required to write
+ * a rubric by hand for these questions.
  */
 export async function approveExtraction(
   assessmentId: string,
@@ -164,8 +174,9 @@ export async function approveExtraction(
   const title = String(formData.get("title") ?? "").trim();
   const instructionsRaw = String(formData.get("instructions") ?? "").trim();
 
+  let createdQuestionIds: string[] = [];
   try {
-    await prisma.$transaction(async (tx) => {
+    createdQuestionIds = await prisma.$transaction(async (tx) => {
       // Atomic compare-and-swap, not a plain read-then-write: a SELECT here
       // (even inside a transaction) takes no row lock under PostgreSQL's
       // default READ COMMITTED isolation, so two genuinely concurrent
@@ -192,10 +203,26 @@ export async function approveExtraction(
         })),
       });
 
+      // createMany doesn't return the created rows, so look them up by the
+      // (assessmentId, questionNumber) pairs just inserted — already
+      // validated above as unique within this batch and not colliding with
+      // any pre-existing question, so this unambiguously identifies exactly
+      // the rows this call just created.
+      const created = await tx.question.findMany({
+        where: { assessmentId, questionNumber: { in: numbers } },
+        select: { id: true },
+      });
+
+      await tx.rubric.createMany({
+        data: created.map((q) => ({ questionId: q.id })),
+      });
+
       const assessmentUpdate: { title?: string; instructions?: string | null } = {};
       if (title) assessmentUpdate.title = title.slice(0, 300);
       assessmentUpdate.instructions = instructionsRaw ? instructionsRaw.slice(0, 4000) : null;
       await tx.assessment.update({ where: { id: assessmentId }, data: assessmentUpdate });
+
+      return created.map((q) => q.id);
     });
   } catch (error) {
     if (error instanceof AlreadyApprovedRaceError) {
@@ -213,6 +240,10 @@ export async function approveExtraction(
     }
     throw error;
   }
+
+  after(async () => {
+    await generateRubricsForQuestions(createdQuestionIds);
+  });
 
   revalidatePath(`/teacher/assessments/${assessmentId}`);
   return { success: true };

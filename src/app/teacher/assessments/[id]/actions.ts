@@ -1,9 +1,12 @@
 "use server";
 
+import { after } from "next/server";
 import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireTeacherSession } from "@/lib/require-teacher";
+import { generateRubricForQuestion } from "@/lib/rubricGeneration";
+import { getAssessmentReadiness, describeAssessmentReadiness } from "@/lib/assessment/readiness";
 
 export type ActionState = { error?: string; success?: boolean };
 
@@ -54,13 +57,25 @@ export async function createQuestion(
   });
   const nextNumber = (highest._max.questionNumber ?? 0) + 1;
 
-  await prisma.question.create({
-    data: {
-      assessmentId,
-      questionNumber: nextNumber,
-      questionText,
-      maximumMarks,
-    },
+  // A companion Rubric row (status PENDING) is created alongside every
+  // question, whether it comes from approved extraction or this manual
+  // form, so the teacher is never asked to write a rubric by hand — see
+  // src/lib/rubricGeneration.
+  const question = await prisma.$transaction(async (tx) => {
+    const created = await tx.question.create({
+      data: {
+        assessmentId,
+        questionNumber: nextNumber,
+        questionText,
+        maximumMarks,
+      },
+    });
+    await tx.rubric.create({ data: { questionId: created.id } });
+    return created;
+  });
+
+  after(async () => {
+    await generateRubricForQuestion(question.id);
   });
 
   revalidatePath(`/teacher/assessments/${assessmentId}`);
@@ -196,6 +211,14 @@ function parseCheckpoints(raw: string): MarkingCheckpoint[] {
  * SUPERSEDED, and Rubric.activeVersionId is repointed to the new row, all in
  * one transaction so the database's active-version composite FK is always
  * satisfied (the new version must exist before it can be pointed to).
+ *
+ * Kept for backward compatibility (Phase 4.1 — the normal workflow now
+ * generates rubrics automatically; see src/lib/rubricGeneration) as an
+ * advanced manual-override path, and for any pre-existing Question that
+ * predates automatic generation and has no Rubric row yet at all (the
+ * `!rubric` branch below). Also sets generationStatus to READY: a rubric a
+ * teacher wrote by hand is just as ready as one the AI wrote, and should
+ * never keep reading as "generating" or "failed" underneath a manual save.
  */
 export async function saveRubricVersion(
   questionId: string,
@@ -263,8 +286,49 @@ export async function saveRubricVersion(
 
     await tx.rubric.update({
       where: { id: rubric.id },
-      data: { activeVersionId: newVersion.id },
+      data: { activeVersionId: newVersion.id, generationStatus: "READY", generationError: null },
     });
+  });
+
+  revalidatePath(`/teacher/assessments/${question.assessmentId}`);
+  return { success: true };
+}
+
+/**
+ * Manually retries automatic rubric generation for one question — the
+ * teacher-facing retry mechanism for a FAILED generation (Phase 4.1 Step 6).
+ * Also covers two edge cases with the same one action, both via the same
+ * upsert: a question whose Rubric row is stuck PENDING (e.g. the server
+ * restarted before its background task ran) and — for full backward
+ * compatibility — a genuinely old Question row created before this phase
+ * existed, which has no Rubric row at all yet. Idempotent: if generation is
+ * already GENERATING or already READY, the underlying atomic claim in
+ * generateRubricForQuestion simply matches nothing and this is a no-op.
+ */
+export async function retryRubricGeneration(
+  questionId: string,
+  _prevState: ActionState,
+): Promise<ActionState> {
+  const session = await requireTeacherSession();
+
+  const question = await getOwnedQuestion(questionId, session.user.id);
+  if (!question) {
+    return { error: "Question not found." };
+  }
+
+  await prisma.rubric.upsert({
+    where: { questionId },
+    create: { questionId },
+    update: {},
+  });
+
+  // Backgrounded, not awaited here, mirroring evaluateHandwrittenSubmission's
+  // trigger (Phase 3.4C): the atomic PENDING/FAILED -> GENERATING claim lives
+  // inside generateRubricForQuestion itself, so this action can return
+  // immediately and the assessment page's auto-refresh picks up the result
+  // rather than holding the request open for the AI call's duration.
+  after(async () => {
+    await generateRubricForQuestion(questionId);
   });
 
   revalidatePath(`/teacher/assessments/${question.assessmentId}`);
@@ -275,6 +339,16 @@ export async function saveRubricVersion(
 // Publishing
 // ---------------------------------------------------------------------------
 
+/**
+ * Publishing is the point of no return for "is this assessment's evaluation
+ * intelligence complete" — a student can submit against a published
+ * assessment immediately, so this must never trust anything the page
+ * happened to render earlier. getAssessmentReadiness re-fetches Question +
+ * Rubric state fresh from the database on every call (Phase 4.2), so a
+ * rubric that finished generating (or failed) after the teacher's page
+ * loaded is still caught correctly here — the authoritative check, not
+ * just the disabled state on the button that got them here.
+ */
 export async function publishAssessment(
   assessmentId: string,
   _prevState: ActionState,
@@ -283,36 +357,18 @@ export async function publishAssessment(
 
   const assessment = await prisma.assessment.findFirst({
     where: { id: assessmentId, teacherId: session.user.id },
-    include: {
-      questions: {
-        include: { rubric: { select: { activeVersionId: true } } },
-      },
-    },
+    select: { status: true },
   });
-
   if (!assessment) {
     return { error: "Assessment not found." };
   }
-
   if (assessment.status !== "DRAFT") {
     return { error: `Assessment is already ${assessment.status.toLowerCase()}.` };
   }
 
-  if (assessment.questions.length === 0) {
-    return { error: "Add at least one question before publishing." };
-  }
-
-  const questionsMissingRubric = assessment.questions.filter(
-    (q) => !q.rubric?.activeVersionId,
-  );
-  if (questionsMissingRubric.length > 0) {
-    const numbers = questionsMissingRubric
-      .map((q) => q.questionNumber)
-      .sort((a, b) => a - b)
-      .join(", ");
-    return {
-      error: `Add a rubric for question${questionsMissingRubric.length > 1 ? "s" : ""} ${numbers} before publishing.`,
-    };
+  const readiness = await getAssessmentReadiness(assessmentId);
+  if (!readiness.isReady) {
+    return { error: describeAssessmentReadiness(readiness).message };
   }
 
   await prisma.assessment.update({

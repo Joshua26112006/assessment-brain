@@ -283,8 +283,25 @@ model Rubric {
   question        Question       @relation(fields: [questionId], references: [id], onDelete: Cascade)
   activeVersionId String?        @unique
   activeVersion   RubricVersion? @relation("ActiveRubricVersion", fields: [activeVersionId, id], references: [id, rubricId], onDelete: Restrict)
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
+
+  /// Phase 4.1 — tracks the automatic AI rubric-generation attempt for this
+  /// question, independent of whether an active version actually exists yet
+  /// (mirrors QuestionPaper.extractionStatus / SubmissionProcessing.status's
+  /// PENDING -> [GENERATING] -> terminal shape). A Rubric row is created
+  /// (status PENDING) alongside its Question the moment the question exists
+  /// — via approved extraction or manual add — so the teacher-facing UI can
+  /// show "generating" before any version is written. A manually-saved
+  /// version (saveRubricVersion, kept for backward compatibility) also sets
+  /// this to READY, since a rubric a teacher wrote by hand is just as ready
+  /// as one the AI wrote.
+  generationStatus RubricGenerationStatus @default(PENDING)
+
+  /// Set only when generationStatus is FAILED — a short, plain-language
+  /// reason, never a raw stack trace or provider error body.
+  generationError String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   versions RubricVersion[] @relation("RubricVersions")
 
@@ -293,6 +310,21 @@ model Rubric {
   /// activeVersionId alone stays @unique, so "at most one Rubric may claim
   /// a given RubricVersion as active" is still separately enforced.
   @@unique([activeVersionId, id])
+  @@index([generationStatus])
+}
+
+enum RubricGenerationStatus {
+  /// Rubric row exists (created alongside its Question) but generation
+  /// hasn't been claimed/run yet.
+  PENDING
+  /// AI generation is currently running for this question.
+  GENERATING
+  /// Generation succeeded — activeVersionId points at the result.
+  READY
+  /// Generation failed; the Question and any prior active version (from an
+  /// earlier successful generation, if this is a retry) are preserved.
+  /// Retriable — see src/lib/rubricGeneration.
+  FAILED
 }
 
 /// An immutable version of a rubric. Once created, a version's content
@@ -308,8 +340,24 @@ model RubricVersion {
   status             RubricVersionStatus @default(DRAFT)
   solutionApproaches Json?
   markingCheckpoints Json?
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
+
+  /// Phase 4.1 — the correct final answer/conclusion (or, for a question
+  /// with no single fixed answer, what a complete correct answer must
+  /// demonstrate). Free text rather than JSON: unlike solutionApproaches and
+  /// markingCheckpoints, nothing in the existing pipeline parses this as a
+  /// list, so there's no array-shape contract to preserve. Teacher-facing
+  /// display only in this phase — not yet read by the evaluation pipeline.
+  expectedAnswer String? @db.Text
+
+  /// Phase 4.1 — how marks should reasonably be awarded for this specific
+  /// question's likely partial-credit situations (method correct but
+  /// arithmetic slip, incomplete answer, missing reasoning, etc). Teacher-
+  /// facing display only in this phase — not yet read by the evaluation
+  /// pipeline.
+  partialCreditGuidance String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   /// Reverse side of Rubric.activeVersion — present only if this version is
   /// currently the active one for its rubric.

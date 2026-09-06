@@ -129,6 +129,21 @@ export function submissionBadge(
   }
 }
 
+/** Rubric.generationStatus (Phase 4.1) — AI rubric generation, per question. */
+export function rubricGenerationBadge(status: string): BadgeDescriptor {
+  switch (status) {
+    case "READY":
+      return { label: "AI-Generated Rubric", tone: "accent" };
+    case "GENERATING":
+      return { label: "Generating rubric…", tone: "info" };
+    case "FAILED":
+      return { label: "Rubric generation failed", tone: "danger" };
+    case "PENDING":
+    default:
+      return { label: "Rubric queued", tone: "neutral" };
+  }
+}
+
 /** Assessment.status — draft and published must be distinguishable at a glance. */
 export function assessmentBadge(status: string): BadgeDescriptor {
   switch (status) {

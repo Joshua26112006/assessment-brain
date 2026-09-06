@@ -1,13 +1,42 @@
 import Link from "next/link";
 import { requireTeacherSession } from "@/lib/require-teacher";
 import { getOwnedAssessmentOrNotFound } from "@/lib/assessment-ownership";
+import { computeAssessmentReadiness, describeAssessmentReadiness } from "@/lib/assessment/readiness";
 import { PageHeader, Section, Card, EmptyState } from "@/components/ui/Page";
 import StatusBadge, { assessmentBadge } from "@/components/ui/StatusBadge";
 import { buttonClass } from "@/components/ui/styles";
 import AddQuestionForm from "./AddQuestionForm";
 import QuestionCard from "./QuestionCard";
-import PublishButton from "./PublishButton";
 import QuestionPaperSection from "./QuestionPaperSection";
+import RubricGenerationWatcher from "./RubricGenerationWatcher";
+import AssessmentReadinessPanel from "./AssessmentReadinessPanel";
+import type { RubricViewerApproach, RubricViewerCheckpoint } from "./RubricViewer";
+
+function toApproaches(raw: unknown): RubricViewerApproach[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((item) => {
+    const record = item as Record<string, unknown>;
+    return {
+      label: typeof record.label === "string" ? record.label : "",
+      description: typeof record.description === "string" ? record.description : "",
+      steps: Array.isArray(record.steps)
+        ? record.steps.filter((s): s is string => typeof s === "string")
+        : [],
+      isPrimary: record.isPrimary === true,
+    };
+  });
+}
+
+function toCheckpoints(raw: unknown): RubricViewerCheckpoint[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((item) => {
+    const record = item as Record<string, unknown>;
+    return {
+      description: typeof record.description === "string" ? record.description : "",
+      marks: typeof record.marks === "number" ? record.marks : Number(record.marks) || 0,
+    };
+  });
+}
 
 export default async function AssessmentDetailPage({
   params,
@@ -29,16 +58,16 @@ export default async function AssessmentDetailPage({
     rubric: q.rubric
       ? {
           id: q.rubric.id,
+          generationStatus: q.rubric.generationStatus,
+          generationError: q.rubric.generationError,
           activeVersion: q.rubric.activeVersion
             ? {
                 id: q.rubric.activeVersion.id,
                 versionNumber: q.rubric.activeVersion.versionNumber,
-                solutionApproaches: Array.isArray(q.rubric.activeVersion.solutionApproaches)
-                  ? (q.rubric.activeVersion.solutionApproaches as unknown[])
-                  : [],
-                markingCheckpoints: Array.isArray(q.rubric.activeVersion.markingCheckpoints)
-                  ? (q.rubric.activeVersion.markingCheckpoints as unknown[])
-                  : [],
+                expectedAnswer: q.rubric.activeVersion.expectedAnswer,
+                partialCreditGuidance: q.rubric.activeVersion.partialCreditGuidance,
+                solutionApproaches: toApproaches(q.rubric.activeVersion.solutionApproaches),
+                markingCheckpoints: toCheckpoints(q.rubric.activeVersion.markingCheckpoints),
               }
             : null,
           versionCount: q.rubric.versions.length,
@@ -47,13 +76,31 @@ export default async function AssessmentDetailPage({
   }));
 
   const badge = assessmentBadge(assessment.status);
-  const isDraft = assessment.status === "DRAFT";
-  const missingRubric = questions.filter((q) => !q.rubric?.activeVersion);
-  const totalMarks = questions.reduce((sum, q) => sum + q.maximumMarks, 0);
-  const readyToPublish = questions.length > 0 && missingRubric.length === 0;
+
+  // The single source of truth for "is this assessment ready to publish" —
+  // the exact same functions publishAssessment uses server-side (Phase
+  // 4.2), computed here from the already-fetched assessment.questions so
+  // this page needs no extra round trip. See src/lib/assessment/readiness.ts.
+  const readiness = computeAssessmentReadiness(
+    assessment.questions.map((q) => ({
+      id: q.id,
+      questionNumber: q.questionNumber,
+      maximumMarks: q.maximumMarks,
+      rubric: q.rubric
+        ? {
+            generationStatus: q.rubric.generationStatus,
+            activeVersionId: q.rubric.activeVersionId,
+            generationError: q.rubric.generationError,
+          }
+        : null,
+    })),
+  );
+  const readinessExplanation = describeAssessmentReadiness(readiness);
 
   return (
     <div>
+      <RubricGenerationWatcher active={readiness.generatingCount > 0 || readiness.pendingCount > 0} />
+
       <PageHeader
         breadcrumb={[
           { label: "Assessments", href: "/teacher/assessments" },
@@ -65,47 +112,28 @@ export default async function AssessmentDetailPage({
           <>
             <StatusBadge label={badge.label} tone={badge.tone} />
             <span className="text-xs text-subtle">
-              {questions.length} question{questions.length === 1 ? "" : "s"} · {totalMarks} marks
-              total
+              {questions.length} question{questions.length === 1 ? "" : "s"} · {readiness.totalMarks}{" "}
+              marks total
             </span>
           </>
         }
         actions={
-          <>
-            <Link
-              href={`/teacher/assessments/${assessment.id}/submissions`}
-              className={buttonClass("secondary")}
-            >
-              Submissions &amp; results
-            </Link>
-            <PublishButton assessmentId={assessment.id} status={assessment.status} />
-          </>
+          <Link
+            href={`/teacher/assessments/${assessment.id}/submissions`}
+            className={buttonClass("secondary")}
+          >
+            Submissions &amp; results
+          </Link>
         }
       />
 
-      {/* Publishing readiness: informative while drafting, never alarming. */}
-      {isDraft ? (
-        <Card tone={readyToPublish ? "success" : "muted"} className="mb-8">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <p className="text-sm font-medium">
-                {readyToPublish ? "Ready to publish" : "Before you can publish"}
-              </p>
-              <p className="mt-1 text-sm text-muted">
-                {questions.length === 0
-                  ? "Add at least one question, then give it a rubric."
-                  : missingRubric.length > 0
-                    ? `Every question needs a rubric. Still missing on question${
-                        missingRubric.length === 1 ? "" : "s"
-                      } ${missingRubric.map((q) => q.questionNumber).join(", ")}.`
-                    : "Every question has an active rubric. Publishing makes this visible to the class."}
-              </p>
-            </div>
-            {readyToPublish && (
-              <PublishButton assessmentId={assessment.id} status={assessment.status} />
-            )}
-          </div>
-        </Card>
+      {assessment.status === "DRAFT" ? (
+        <AssessmentReadinessPanel
+          assessmentId={assessment.id}
+          status={assessment.status}
+          readiness={readiness}
+          explanation={readinessExplanation}
+        />
       ) : (
         <Card tone="muted" className="mb-8">
           <p className="text-sm font-medium">This assessment is live</p>
@@ -129,13 +157,14 @@ export default async function AssessmentDetailPage({
       <QuestionPaperSection assessmentId={assessment.id} hasQuestions={questions.length > 0} />
 
       <Section
+        id="questions-and-rubrics"
         title="Questions & rubrics"
-        description="A rubric defines the accepted approaches and the checkpoints that earn marks. Editing a rubric creates a new version; past versions are kept so previous results stay reproducible."
+        description="Assessment Brain automatically generates a detailed marking rubric for every question — the expected answer, solution approach, marking checkpoints, and partial-credit guidance. Manually editing a rubric is still available as an advanced override."
       >
         {questions.length === 0 ? (
           <EmptyState
             title="No questions yet"
-            description="Add your first question below, then attach a rubric to it."
+            description="Add your first question below, then Assessment Brain writes its rubric for you."
           />
         ) : (
           <div className="flex flex-col gap-3">
