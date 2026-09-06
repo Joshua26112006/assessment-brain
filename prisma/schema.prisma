@@ -250,9 +250,52 @@ model Submission {
 
   questionResponses QuestionResponse[]
   reviewItems       ReviewItem[]
+  answerSheetPages  AnswerSheetPage[]
 
   @@unique([assessmentId, studentId])
   @@index([status])
+}
+
+/// One uploaded page image belonging to a student's Submission — the storage
+/// foundation for the eventual handwritten-answer-sheet workflow (see
+/// src/lib/answerReading's own README). Deliberately independent of
+/// QuestionResponse for now: this model only persists and secures uploaded
+/// pages, with no OCR, segmentation, or question-mapping yet.
+///
+/// `storageKey` is a stable identifier into the storage layer
+/// (src/lib/storage/), never a public URL — access is always brokered
+/// through a request that verifies Submission ownership first.
+model AnswerSheetPage {
+  id           String     @id @default(cuid())
+  submissionId String
+  submission   Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+
+  /// 1-based position within this submission's answer sheet. Explicit and
+  /// database-enforced (see @@unique below) rather than inferred from
+  /// upload time or array position, so page order is never ambiguous.
+  pageNumber Int
+
+  /// Server-generated storage identifier (see
+  /// src/lib/storage/answerSheets.ts for the exact convention) — never
+  /// derived from the original filename and never a public URL.
+  storageKey String @unique
+
+  /// The filename the browser reported, kept only as display metadata —
+  /// never used to derive the storage path or trusted for content type.
+  originalFilename String
+
+  /// Sniffed from the file's actual bytes at upload time, not the browser's
+  /// declared Content-Type. One of image/jpeg, image/png, image/webp.
+  mimeType String
+
+  fileSizeBytes Int
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// A page number can exist at most once per submission — the structural
+  /// guarantee against duplicate/conflicting pages.
+  @@unique([submissionId, pageNumber])
 }
 
 enum QuestionResponseStatus {

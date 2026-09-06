@@ -37,6 +37,11 @@ yarn-error.log*
 # vercel
 .vercel
 
+# locally stored answer-sheet uploads (dev-only storage driver — see
+# src/lib/storage/localFileStorage.ts). Contains real student file uploads
+# and must never be committed.
+/storage/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
