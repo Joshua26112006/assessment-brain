@@ -15,6 +15,7 @@ import {
 } from "@/lib/pipeline/parseResults";
 import type { CheckpointCorrectionResult } from "@/types/pipeline";
 import { PageHeader, Card } from "@/components/ui/Page";
+import { buttonClass } from "@/components/ui/styles";
 import StatusBadge, {
   EVIDENCE_SOURCE_DESCRIPTION,
   REVIEW_REASON_DESCRIPTION,
@@ -263,6 +264,28 @@ export default async function ReviewItemDetailPage({
       <div className="grid gap-6 lg:grid-cols-3">
         {/* ---------------- Evidence ---------------- */}
         <div className="flex flex-col gap-4 lg:col-span-2">
+          {item.submission && item.submission.answerSheetPages.length > 0 && (
+            <Evidence
+              title="Answer sheet pages"
+              hint="The original handwritten pages this submission was read from."
+            >
+              <ul className="flex flex-wrap gap-2">
+                {item.submission.answerSheetPages.map((page) => (
+                  <li key={page.id}>
+                    <a
+                      href={`/api/teacher/submissions/${item.submission!.id}/answer-sheets/${page.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={buttonClass("secondary", "sm")}
+                    >
+                      View page {page.pageNumber}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </Evidence>
+          )}
+
           {question && (
             <Evidence title="Question">
               <p className="whitespace-pre-wrap text-sm leading-relaxed">
@@ -596,12 +619,13 @@ export default async function ReviewItemDetailPage({
         {/* ---------------- Decision ---------------- */}
         <div className="lg:col-span-1">
           <div className="lg:sticky lg:top-24">
-            {isOpen && question ? (
+            {isOpen ? (
               <div className="rounded-xl border border-accent-soft bg-surface p-5 shadow-sm">
                 <h2 className="text-base font-semibold">Your decision</h2>
                 <p className="mt-1 text-sm text-muted">
-                  Confirming or overriding marks this response as finally graded and closes this
-                  flag.
+                  {question
+                    ? "Confirming or overriding marks this response as finally graded and closes this flag."
+                    : "This flag isn't about one specific question — dismiss it once you've reviewed the submission."}
                 </p>
                 <div className="mt-4">
                   <ReviewDecisionForm
@@ -610,6 +634,7 @@ export default async function ReviewItemDetailPage({
                     suggestedMarks={grading ? grading.awardedMarks : null}
                     canConfirm={canConfirm}
                     canDismiss={canDismiss}
+                    hasQuestion={Boolean(question)}
                   />
                 </div>
               </div>
@@ -617,9 +642,7 @@ export default async function ReviewItemDetailPage({
               <Card tone="muted">
                 <p className="text-sm font-medium">No action needed</p>
                 <p className="mt-1 text-sm text-muted">
-                  {isOpen
-                    ? "This flag isn't linked to a markable question."
-                    : "This review is closed. It stays here as a record of the decision."}
+                  This review is closed. It stays here as a record of the decision.
                 </p>
                 <Link
                   href="/teacher/review-queue"

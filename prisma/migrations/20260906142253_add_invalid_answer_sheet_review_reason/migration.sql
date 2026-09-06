@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "ReviewReason" ADD VALUE 'INVALID_ANSWER_SHEET';

@@ -351,9 +351,10 @@ model Submission {
   createdAt    DateTime         @default(now())
   updatedAt    DateTime         @updatedAt
 
-  questionResponses QuestionResponse[]
-  reviewItems       ReviewItem[]
-  answerSheetPages  AnswerSheetPage[]
+  questionResponses     QuestionResponse[]
+  reviewItems           ReviewItem[]
+  answerSheetPages      AnswerSheetPage[]
+  handwrittenProcessing SubmissionProcessing?
 
   @@unique([assessmentId, studentId])
   @@index([status])
@@ -399,6 +400,74 @@ model AnswerSheetPage {
   /// A page number can exist at most once per submission — the structural
   /// guarantee against duplicate/conflicting pages.
   @@unique([submissionId, pageNumber])
+}
+
+// ---------------------------------------------------------------------------
+// SubmissionProcessing (Phase 3.4A/3.4B — handwritten submission processing)
+// ---------------------------------------------------------------------------
+
+enum SubmissionProcessingStatus {
+  /// Created, not yet claimed by a processing run.
+  PENDING
+  /// Deterministic validation, the AI validation gate, and global answer
+  /// reading are currently running.
+  PROCESSING
+  /// Processing completed and produced a structured answer index — ready
+  /// for Phase 3.4C evaluation. This does NOT mean the submission was
+  /// judged a clean answer sheet; see validationResult.decision, which may
+  /// still be "UNCERTAIN" even when this status is READY.
+  READY
+  /// The AI validation gate concluded this is clearly not a usable answer
+  /// sheet (e.g. blank pages, an unrelated document). No answer index was
+  /// built. This is a conclusion about the submission, not a bug.
+  INVALID
+  /// A technical failure (storage read failure, AI provider failure after
+  /// retries, malformed AI output that failed structural validation) —
+  /// distinct from INVALID. Retriable.
+  FAILED
+}
+
+/// Tracks the Phase 3.4A/3.4B handwritten-submission processing pipeline for
+/// one Submission: deterministic validation, the AI answer-sheet validation
+/// gate, and global handwriting reading. Deliberately independent of
+/// QuestionResponse and the existing evaluation pipeline — this model only
+/// prepares structured, teacher-reviewable input for a LATER evaluation
+/// phase (Phase 3.4C) and never itself decides a mark, runs correction, or
+/// creates QuestionResponse rows.
+///
+/// One-to-one with Submission (@unique submissionId): a submission is
+/// uploaded and submitted exactly once in the current architecture (pages
+/// can only be added/removed while the submission is still DRAFT — see
+/// isAnswerSheetEditableStatus), so there is only ever one processing
+/// attempt to track per submission. A retry after FAILED updates this same
+/// row rather than creating a new one.
+model SubmissionProcessing {
+  id           String     @id @default(cuid())
+  submissionId String     @unique
+  submission   Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+
+  status SubmissionProcessingStatus @default(PENDING)
+
+  /// The AI validation gate's structured decision + evidence (see
+  /// src/lib/handwritten/types.ts for the exact shape) — always present
+  /// once a processing attempt has actually run, including for INVALID and
+  /// UNCERTAIN outcomes. Never a raw, unstructured model response.
+  validationResult Json?
+
+  /// The structured global answer index (see
+  /// src/lib/handwritten/types.ts) — mapped answers, unmapped content, and
+  /// per-question coverage. Null while PENDING/PROCESSING, and intentionally
+  /// left null (not fabricated) when the validation gate concluded INVALID.
+  answerIndex Json?
+
+  /// Set only when status is FAILED — a short, plain-language reason,
+  /// never a raw stack trace or provider error body.
+  processingError String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
 }
 
 enum QuestionResponseStatus {
@@ -466,6 +535,12 @@ enum ReviewReason {
   VERIFICATION_FAILURE
   AMBIGUOUS_ANNOTATION
   UNDETERMINED_GRADING
+  /// The Phase 3.4B AI answer-sheet validation gate concluded a handwritten
+  /// submission's uploaded pages are not usable as a genuine answer sheet
+  /// (e.g. an unrelated document, all pages blank). Submission-scoped only
+  /// — never tied to a specific Question or QuestionResponse, since no
+  /// evaluation was attempted.
+  INVALID_ANSWER_SHEET
   OTHER
 }
 

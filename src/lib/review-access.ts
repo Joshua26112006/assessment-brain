@@ -31,6 +31,14 @@ export async function getOwnedReviewItemOrNotFound(reviewItemId: string, teacher
           assessment: {
             select: { id: true, title: true, subject: true, grade: true, curriculum: true },
           },
+          // Phase 3.4C: lets the review detail page offer "view original
+          // page" links for handwritten-submission review items, reusing
+          // the existing authorized teacher answer-sheet route — never a
+          // raw storage key or path, just page ids or ordinary metadata.
+          answerSheetPages: {
+            orderBy: { pageNumber: "asc" },
+            select: { id: true, pageNumber: true, mimeType: true },
+          },
         },
       },
       questionResponse: {

@@ -178,6 +178,8 @@ export function reviewReasonBadge(reason: string): BadgeDescriptor {
       return { label: "Uncertain feedback", tone: "warning" };
     case "UNDETERMINED_GRADING":
       return { label: "No mark determined", tone: "warning" };
+    case "INVALID_ANSWER_SHEET":
+      return { label: "Not a valid answer sheet", tone: "danger" };
     default:
       return { label: "Flagged", tone: "neutral" };
   }
@@ -191,6 +193,7 @@ export const REVIEW_REASON_DESCRIPTION: Record<string, string> = {
   VERIFICATION_FAILURE: "Evaluation could not be completed for this response.",
   AMBIGUOUS_ANNOTATION: "Feedback generation was uncertain.",
   UNDETERMINED_GRADING: "A mark could not be determined automatically.",
+  INVALID_ANSWER_SHEET: "The uploaded pages don't look like a usable answer sheet for this assessment.",
   OTHER: "Flagged for your review.",
 };
 

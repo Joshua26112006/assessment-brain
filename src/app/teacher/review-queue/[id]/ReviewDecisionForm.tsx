@@ -19,12 +19,22 @@ export default function ReviewDecisionForm({
   suggestedMarks,
   canConfirm,
   canDismiss,
+  hasQuestion = true,
 }: {
   reviewItemId: string;
   maximumMarks: number;
   suggestedMarks: number | null;
   canConfirm: boolean;
   canDismiss: boolean;
+  /**
+   * False for a submission-scoped flag (Phase 3.4C — e.g. an invalid
+   * handwritten answer sheet, or unmapped content) that isn't about any one
+   * Question at all. There is no mark to confirm or override in that case
+   * — only acknowledging the flag (Dismiss) and an optional note make
+   * sense, so the mark-related sections below are hidden entirely rather
+   * than showing a confusing "override between 0 and 0".
+   */
+  hasQuestion?: boolean;
 }) {
   const action = submitReviewDecision.bind(null, reviewItemId);
   const [state, formAction, isPending] = useActionState(action, initialState);
@@ -51,42 +61,44 @@ export default function ReviewDecisionForm({
         </div>
       )}
 
-      <div className="rounded-lg border border-line bg-surface-muted p-4">
-        <label htmlFor="overrideMarks" className="block text-sm font-medium">
-          Override the mark
-        </label>
-        <p className="mt-1 text-xs text-muted">
-          Replace it with your own, between 0 and {maximumMarks}.
-        </p>
-        <div className="mt-3 flex items-center gap-2">
-          {/* Width lives on the wrapper, not the input's className, so it
-              can't lose a cascade tie against inputClass's own w-full. */}
-          <div className="w-24 shrink-0">
-            <input
-              id="overrideMarks"
-              type="number"
-              inputMode="decimal"
-              step="0.01"
-              min={0}
-              max={maximumMarks}
-              name="overrideMarks"
-              value={overrideMarks}
-              onChange={(e) => setOverrideMarks(e.target.value)}
-              className={inputClass}
-            />
+      {hasQuestion && (
+        <div className="rounded-lg border border-line bg-surface-muted p-4">
+          <label htmlFor="overrideMarks" className="block text-sm font-medium">
+            Override the mark
+          </label>
+          <p className="mt-1 text-xs text-muted">
+            Replace it with your own, between 0 and {maximumMarks}.
+          </p>
+          <div className="mt-3 flex items-center gap-2">
+            {/* Width lives on the wrapper, not the input's className, so it
+                can't lose a cascade tie against inputClass's own w-full. */}
+            <div className="w-24 shrink-0">
+              <input
+                id="overrideMarks"
+                type="number"
+                inputMode="decimal"
+                step="0.01"
+                min={0}
+                max={maximumMarks}
+                name="overrideMarks"
+                value={overrideMarks}
+                onChange={(e) => setOverrideMarks(e.target.value)}
+                className={inputClass}
+              />
+            </div>
+            <span className="text-sm text-muted">/ {maximumMarks}</span>
           </div>
-          <span className="text-sm text-muted">/ {maximumMarks}</span>
+          <button
+            type="submit"
+            name="decision"
+            value="override"
+            disabled={isPending}
+            className={buttonClass("secondary", "md", "mt-3 w-full")}
+          >
+            {isPending ? "Saving…" : "Override & resolve"}
+          </button>
         </div>
-        <button
-          type="submit"
-          name="decision"
-          value="override"
-          disabled={isPending}
-          className={buttonClass("secondary", "md", "mt-3 w-full")}
-        >
-          {isPending ? "Saving…" : "Override & resolve"}
-        </button>
-      </div>
+      )}
 
       <div>
         <label htmlFor="feedbackNote" className="block text-sm font-medium">
@@ -123,7 +135,7 @@ export default function ReviewDecisionForm({
         </div>
       )}
 
-      {!canConfirm && (
+      {hasQuestion && !canConfirm && (
         <p className="rounded-lg border border-line bg-surface-muted px-3 py-2 text-xs text-muted">
           There is no completed evaluation to confirm for this response — enter a mark to resolve
           it.

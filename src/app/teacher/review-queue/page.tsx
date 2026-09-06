@@ -33,6 +33,35 @@ function summarizeContext(reason: string, context: unknown): string | null {
   if (reason === "VERIFICATION_FAILURE" && typeof record.errorMessage === "string") {
     return record.errorMessage;
   }
+  if (reason === "INVALID_ANSWER_SHEET") {
+    const validationResult = record.validationResult as Record<string, unknown> | undefined;
+    const reasonCodes = validationResult?.reasonCodes;
+    if (Array.isArray(reasonCodes) && reasonCodes.length > 0) {
+      return `Reason: ${reasonCodes.join(", ")}`;
+    }
+    return "The uploaded pages don't look like a genuine answer sheet.";
+  }
+  if (reason === "AMBIGUOUS_EXTRACTION") {
+    // Two distinct shapes share this reason (Phase 3.4C): a per-question
+    // uncertain reading (has detectedQuestionNumber) and a submission-level
+    // signal (has mappedCount/unmappedCount) — both handled here rather
+    // than inventing a second reason for what is the same underlying kind
+    // of flag ("extraction was ambiguous").
+    if (typeof record.unmappedCount === "number") {
+      const unmapped = record.unmappedCount;
+      const mapped = typeof record.mappedCount === "number" ? record.mappedCount : null;
+      if (mapped === 0) {
+        return "No answers could be confidently matched to any question.";
+      }
+      if (unmapped > 0) {
+        return `${unmapped} page fragment${unmapped === 1 ? "" : "s"} couldn't be matched to a question.`;
+      }
+      return "The overall submission was flagged as uncertain during reading.";
+    }
+    if (typeof record.detectedQuestionNumber === "number") {
+      return `Written question number: ${record.detectedQuestionNumber}`;
+    }
+  }
   return null;
 }
 
