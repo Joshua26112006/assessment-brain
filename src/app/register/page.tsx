@@ -6,6 +6,7 @@ import Link from "next/link";
 import { signIn, getSession } from "next-auth/react";
 import { dashboardPathForRole } from "@/lib/dashboard-path";
 import type { Role } from "@prisma/client";
+import { buttonClass, fieldErrorClass, inputClass, labelClass } from "@/components/ui/styles";
 
 type FieldErrors = Partial<
   Record<"name" | "email" | "password" | "role", string>
@@ -76,21 +77,23 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="mx-auto max-w-sm">
-      <h1 className="text-2xl font-semibold tracking-tight">
-        Create your account
-      </h1>
-      <p className="mt-2 text-sm text-black/60 dark:text-white/60">
+    <div className="mx-auto max-w-sm py-6">
+      <h1 className="text-2xl font-semibold tracking-tight">Create your account</h1>
+      <p className="mt-2 text-sm text-muted">
         Already have an account?{" "}
-        <Link href="/login" className="underline">
+        <Link href="/login" className="font-medium text-accent-text hover:underline">
           Sign in
         </Link>
         .
       </p>
 
-      <form onSubmit={handleSubmit} noValidate className="mt-6 flex flex-col gap-4">
+      <form
+        onSubmit={handleSubmit}
+        noValidate
+        className="mt-6 flex flex-col gap-4 rounded-xl border border-line bg-surface p-6"
+      >
         <div>
-          <label htmlFor="name" className="block text-sm font-medium">
+          <label htmlFor="name" className={labelClass}>
             Full Name
           </label>
           <input
@@ -99,15 +102,15 @@ export default function RegisterPage() {
             autoComplete="name"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className="mt-1 w-full rounded-md border border-black/15 px-3 py-2 text-sm dark:border-white/20"
+            className={`${inputClass} mt-1.5`}
           />
           {fieldErrors.name && (
-            <p className="mt-1 text-sm text-red-600">{fieldErrors.name}</p>
+            <p className={fieldErrorClass}>{fieldErrors.name}</p>
           )}
         </div>
 
         <div>
-          <label htmlFor="email" className="block text-sm font-medium">
+          <label htmlFor="email" className={labelClass}>
             Email Address
           </label>
           <input
@@ -116,15 +119,15 @@ export default function RegisterPage() {
             autoComplete="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="mt-1 w-full rounded-md border border-black/15 px-3 py-2 text-sm dark:border-white/20"
+            className={`${inputClass} mt-1.5`}
           />
           {fieldErrors.email && (
-            <p className="mt-1 text-sm text-red-600">{fieldErrors.email}</p>
+            <p className={fieldErrorClass}>{fieldErrors.email}</p>
           )}
         </div>
 
         <div>
-          <label htmlFor="password" className="block text-sm font-medium">
+          <label htmlFor="password" className={labelClass}>
             Password
           </label>
           <input
@@ -133,17 +136,17 @@ export default function RegisterPage() {
             autoComplete="new-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="mt-1 w-full rounded-md border border-black/15 px-3 py-2 text-sm dark:border-white/20"
+            className={`${inputClass} mt-1.5`}
           />
           {fieldErrors.password && (
-            <p className="mt-1 text-sm text-red-600">{fieldErrors.password}</p>
+            <p className={fieldErrorClass}>{fieldErrors.password}</p>
           )}
         </div>
 
         <fieldset>
-          <legend className="block text-sm font-medium">I am a...</legend>
+          <legend className={labelClass}>I am a...</legend>
           <div className="mt-1 flex gap-3">
-            <label className="flex flex-1 items-center justify-center gap-2 rounded-md border border-black/15 px-3 py-2 text-sm has-checked:border-black has-checked:bg-black/5 dark:border-white/20 dark:has-checked:border-white dark:has-checked:bg-white/10">
+            <label className="flex flex-1 cursor-pointer items-center justify-center gap-2 rounded-md border border-line-strong px-3 py-2 text-sm transition-colors has-checked:border-accent has-checked:bg-accent-soft has-checked:font-medium has-checked:text-accent-text">
               <input
                 type="radio"
                 name="role"
@@ -153,7 +156,7 @@ export default function RegisterPage() {
               />
               Teacher
             </label>
-            <label className="flex flex-1 items-center justify-center gap-2 rounded-md border border-black/15 px-3 py-2 text-sm has-checked:border-black has-checked:bg-black/5 dark:border-white/20 dark:has-checked:border-white dark:has-checked:bg-white/10">
+            <label className="flex flex-1 cursor-pointer items-center justify-center gap-2 rounded-md border border-line-strong px-3 py-2 text-sm transition-colors has-checked:border-accent has-checked:bg-accent-soft has-checked:font-medium has-checked:text-accent-text">
               <input
                 type="radio"
                 name="role"
@@ -165,12 +168,12 @@ export default function RegisterPage() {
             </label>
           </div>
           {fieldErrors.role && (
-            <p className="mt-1 text-sm text-red-600">{fieldErrors.role}</p>
+            <p className={fieldErrorClass}>{fieldErrors.role}</p>
           )}
         </fieldset>
 
         {formError && (
-          <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
+          <p className="rounded-lg border border-danger-line bg-danger-soft px-3 py-2 text-sm font-medium text-danger">
             {formError}
           </p>
         )}
@@ -178,7 +181,7 @@ export default function RegisterPage() {
         <button
           type="submit"
           disabled={isSubmitting}
-          className="mt-2 rounded-md bg-black px-4 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-white dark:text-black"
+          className={buttonClass("primary", "md", "mt-2 w-full")}
         >
           {isSubmitting ? "Creating account..." : "Create account"}
         </button>

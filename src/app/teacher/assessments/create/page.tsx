@@ -1,6 +1,9 @@
 import { prisma } from "@/lib/prisma";
 import { requireTeacherSession } from "@/lib/require-teacher";
+import { PageHeader } from "@/components/ui/Page";
 import CreateAssessmentForm from "./CreateAssessmentForm";
+
+export const metadata = { title: "Create assessment" };
 
 export default async function CreateAssessmentPage() {
   const session = await requireTeacherSession();
@@ -12,13 +15,15 @@ export default async function CreateAssessmentPage() {
   });
 
   return (
-    <div className="mx-auto max-w-xl">
-      <h1 className="text-2xl font-semibold tracking-tight">
-        Create Assessment
-      </h1>
-      <p className="mt-2 text-sm text-black/60 dark:text-white/60">
-        Set up the basics now — you&apos;ll add questions and rubrics next.
-      </p>
+    <div className="mx-auto max-w-2xl">
+      <PageHeader
+        breadcrumb={[
+          { label: "Assessments", href: "/teacher/assessments" },
+          { label: "New assessment" },
+        ]}
+        title="Create assessment"
+        description="Set up the basics now — you'll add questions and rubrics next."
+      />
 
       <CreateAssessmentForm classes={classes} />
     </div>

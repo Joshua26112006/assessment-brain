@@ -41,7 +41,7 @@
  * (that model already exists for exactly this purpose).
  */
 
-import type { ConfidenceScore, ISODateString, RubricVersionId, QuestionResponseId } from "@/types/assessmentBrain";
+import type { ConfidenceScore, ID, ISODateString, RubricVersionId, QuestionResponseId, TeacherId } from "@/types/assessmentBrain";
 
 export const PIPELINE_CONTRACT_VERSION = "1.0.0";
 
@@ -340,6 +340,20 @@ export interface AnnotationResult extends PipelineStageResultBase<"ANNOTATION"> 
   needsHumanReview: boolean;
   /** Optional AI-generated student-facing feedback (Phase 2.2), grounded in the resolved evidence. */
   aiAnnotation?: AiAnnotationResult | null;
+  /**
+   * Optional note a teacher wrote while resolving a review item (Phase 2.4).
+   * Added alongside — never in place of — the machine-generated entries and
+   * aiAnnotation above, so resolving a review never destroys AI evidence.
+   */
+  teacherFeedback?: TeacherFeedbackNote | null;
+}
+
+/** A teacher's own words for the student, attached during human review. */
+export interface TeacherFeedbackNote {
+  note: string;
+  authoredAt: ISODateString;
+  reviewerId: TeacherId;
+  reviewItemId: ID;
 }
 
 /**
@@ -363,7 +377,36 @@ export interface AiAnnotationResult extends PipelineStageResultBase<"ANNOTATION_
 // 6. Grading
 // ---------------------------------------------------------------------------
 
-export type GradingEvidenceSource = "DETERMINISTIC" | "AI_VERIFIED";
+/**
+ * Where the marks in a GradingResult ultimately came from.
+ *
+ * DETERMINISTIC / AI_VERIFIED are produced by the pipeline itself.
+ * TEACHER_REVIEWED is only ever written by the human review workflow
+ * (Phase 2.4) — a teacher confirming or overriding a pipeline result. It is
+ * the highest authority: the pipeline never overwrites it, because a
+ * teacher-reviewed response is already in a terminal status and so is
+ * skipped by the orchestrator's idempotency guard.
+ */
+export type GradingEvidenceSource = "DETERMINISTIC" | "AI_VERIFIED" | "TEACHER_REVIEWED";
+
+export type TeacherReviewAction = "CONFIRMED" | "OVERRIDDEN";
+
+/**
+ * Provenance for a grading result that a teacher has ruled on. The
+ * pipeline's own conclusion is preserved in the `previous*` fields, so an
+ * override records what the AI decided rather than erasing it — the
+ * correction evidence itself (checkpoints, AI evaluation, comparison,
+ * verification) is never touched at all and stays in `correctionResult`.
+ */
+export interface TeacherReviewRecord {
+  action: TeacherReviewAction;
+  reviewedAt: ISODateString;
+  reviewerId: TeacherId;
+  reviewItemId: ID;
+  previousAwardedMarks: number | null;
+  previousOutcome: GradingOutcome | null;
+  previousEvidenceSource: GradingEvidenceSource | null;
+}
 
 export interface GradingInput {
   correctionTotal: number;
@@ -386,6 +429,13 @@ export interface GradingResult extends PipelineStageResultBase<"GRADING"> {
    * this value or the final mark itself.
    */
   evidenceSource: GradingEvidenceSource;
+  /**
+   * Present only once a teacher has ruled on this response through the
+   * review workflow. When set, `awardedMarks`/`outcome` above are the
+   * teacher's authoritative decision and `evidenceSource` is
+   * "TEACHER_REVIEWED"; the superseded pipeline values live here.
+   */
+  teacherReview?: TeacherReviewRecord | null;
 }
 
 // ---------------------------------------------------------------------------

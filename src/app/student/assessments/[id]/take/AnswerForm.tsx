@@ -1,10 +1,19 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
+import { buttonClass, inputClass } from "@/components/ui/styles";
 import { saveAnswer, type ActionState } from "./actions";
 
 const initialState: ActionState = {};
 
+/**
+ * One question and its answer box.
+ *
+ * The save indicator is deliberately honest: it compares what's in the box
+ * against what was last successfully written to the server, so "Saved" only
+ * ever appears when the current text really is the stored text. There is no
+ * autosave — the student presses Save — and the UI never implies otherwise.
+ */
 export default function AnswerForm({
   submissionId,
   questionId,
@@ -23,38 +32,77 @@ export default function AnswerForm({
   const action = saveAnswer.bind(null, submissionId, questionId);
   const [state, formAction, isPending] = useActionState(action, initialState);
 
+  const [value, setValue] = useState(initialAnswer);
+  const [savedValue, setSavedValue] = useState(initialAnswer);
+  // What was in the box at the moment of submission — the text the server
+  // actually received, which may differ from `value` if typing continued.
+  const submittedValueRef = useRef(initialAnswer);
+
+  useEffect(() => {
+    if (state.success) {
+      setSavedValue(submittedValueRef.current);
+    }
+  }, [state]);
+
+  const hasUnsavedChanges = value !== savedValue;
+  const hasSavedAnswer = savedValue.trim().length > 0;
+
+  const status = isPending
+    ? { label: "Saving…", tone: "text-muted" }
+    : hasUnsavedChanges
+      ? { label: "Unsaved changes", tone: "text-warning" }
+      : hasSavedAnswer
+        ? { label: "Saved", tone: "text-success" }
+        : { label: "Not answered yet", tone: "text-subtle" };
+
+  const fieldId = `answer-${questionId}`;
+
   return (
     <form
-      action={formAction}
-      className="rounded-lg border border-black/10 p-4 dark:border-white/15"
+      action={(formData) => {
+        submittedValueRef.current = value;
+        formAction(formData);
+      }}
+      className="rounded-xl border border-line bg-surface p-5"
     >
-      <div className="flex items-baseline justify-between">
-        <span className="text-xs font-medium text-black/50 dark:text-white/50">
-          Question {questionNumber} &middot; {maximumMarks} marks
-        </span>
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span
+            aria-hidden="true"
+            className="grid h-6 w-6 place-items-center rounded-md bg-surface-muted text-xs font-semibold text-muted"
+          >
+            {questionNumber}
+          </span>
+          <span className="text-xs font-medium text-subtle">
+            Question {questionNumber} · {maximumMarks} marks
+          </span>
+        </div>
+        <span className={`text-xs font-medium ${status.tone}`}>{status.label}</span>
       </div>
-      <p className="mt-1 whitespace-pre-wrap text-sm">{questionText}</p>
+
+      <label htmlFor={fieldId} className="mt-2 block whitespace-pre-wrap text-sm leading-relaxed">
+        {questionText}
+      </label>
 
       <textarea
+        id={fieldId}
         name="answerText"
-        defaultValue={initialAnswer}
-        rows={4}
-        placeholder="Type your answer here..."
-        className="mt-3 w-full rounded-md border border-black/15 px-3 py-2 text-sm dark:border-white/20"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        rows={5}
+        placeholder="Type your answer here…"
+        className={`${inputClass} mt-3 leading-relaxed`}
       />
 
-      <div className="mt-2 flex items-center gap-3">
+      <div className="mt-3 flex flex-wrap items-center gap-3">
         <button
           type="submit"
-          disabled={isPending}
-          className="rounded-md border border-black/15 px-3 py-1.5 text-sm hover:bg-black/5 disabled:opacity-50 dark:border-white/20 dark:hover:bg-white/10"
+          disabled={isPending || !hasUnsavedChanges}
+          className={buttonClass("secondary", "sm")}
         >
-          {isPending ? "Saving..." : "Save answer"}
+          {isPending ? "Saving…" : hasUnsavedChanges ? "Save answer" : "Saved"}
         </button>
-        {state.error && <p className="text-sm text-red-600">{state.error}</p>}
-        {state.success && (
-          <p className="text-sm text-green-700 dark:text-green-400">Saved.</p>
-        )}
+        {state.error && <p className="text-sm font-medium text-danger">{state.error}</p>}
       </div>
     </form>
   );

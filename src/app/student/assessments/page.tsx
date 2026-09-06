@@ -1,63 +1,104 @@
 import Link from "next/link";
 import { requireStudentSession } from "@/lib/require-student";
 import { getAvailableAssessmentsForStudent } from "@/lib/student-assessment-access";
+import { PageHeader, EmptyState, Section } from "@/components/ui/Page";
+import StatusBadge, { submissionBadge } from "@/components/ui/StatusBadge";
 
-const SUBMISSION_LABEL: Record<string, string> = {
-  DRAFT: "In progress",
-  SUBMITTED: "Submitted",
-  PROCESSING: "Processing",
-  COMPLETED: "Evaluated",
-  NEEDS_REVIEW: "Under review",
-  FAILED: "Needs attention",
-};
+export const metadata = { title: "Assessments" };
+
+type StudentAssessment = Awaited<ReturnType<typeof getAvailableAssessmentsForStudent>>[number];
 
 export default async function StudentAssessmentsPage() {
   const session = await requireStudentSession();
   const assessments = await getAvailableAssessmentsForStudent(session.user.id);
 
+  const notStarted = assessments.filter((a) => !a.submission);
+  const inProgress = assessments.filter((a) => a.submission?.status === "DRAFT");
+  const done = assessments.filter(
+    (a) => a.submission && a.submission.status !== "DRAFT",
+  );
+
   return (
     <div>
-      <h1 className="text-xl font-semibold tracking-tight">Assessments</h1>
-      <p className="mt-2 text-sm text-black/60 dark:text-white/60">
-        Assessments published by your teachers for classes you belong to.
-      </p>
+      <PageHeader
+        title="Assessments"
+        description="Assessments published by your teachers for classes you belong to."
+      />
 
       {assessments.length === 0 ? (
-        <div className="mt-8 rounded-lg border border-dashed border-black/15 p-10 text-center dark:border-white/20">
-          <p className="text-sm text-black/60 dark:text-white/60">
-            No assessments are available yet. Check back once your teacher
-            publishes one.
-          </p>
-        </div>
+        <EmptyState
+          title="Nothing to do right now"
+          description="No assessments are available yet. Check back once your teacher publishes one."
+        />
       ) : (
-        <ul className="mt-6 flex flex-col gap-3">
-          {assessments.map((assessment) => (
-            <li key={assessment.id}>
-              <Link
-                href={`/student/assessments/${assessment.id}`}
-                className="block rounded-lg border border-black/10 p-4 hover:border-black/30 dark:border-white/15 dark:hover:border-white/30"
-              >
-                <div className="flex items-center justify-between gap-4">
-                  <h2 className="font-medium">{assessment.title}</h2>
-                  <span className="shrink-0 rounded bg-black/5 px-2 py-0.5 text-xs uppercase tracking-wide dark:bg-white/10">
-                    {assessment.submission
-                      ? SUBMISSION_LABEL[assessment.submission.status]
-                      : "Not started"}
-                  </span>
-                </div>
-                <p className="mt-1 text-sm text-black/60 dark:text-white/60">
-                  {assessment.subject} &middot; {assessment.grade} &middot;{" "}
-                  {assessment.curriculum}
-                </p>
-                <p className="mt-2 text-xs text-black/50 dark:text-white/50">
-                  {assessment._count.questions} question
-                  {assessment._count.questions === 1 ? "" : "s"}
-                </p>
-              </Link>
-            </li>
-          ))}
-        </ul>
+        <div className="flex flex-col gap-8">
+          {inProgress.length > 0 && (
+            <Section title="Continue" description="Started but not submitted yet.">
+              <AssessmentList assessments={inProgress} cta="Continue" />
+            </Section>
+          )}
+          {notStarted.length > 0 && (
+            <Section title="Not started">
+              <AssessmentList assessments={notStarted} cta="Start" />
+            </Section>
+          )}
+          {done.length > 0 && (
+            <Section title="Submitted" description="Your results appear under Results.">
+              <AssessmentList assessments={done} cta="View result" />
+            </Section>
+          )}
+        </div>
       )}
     </div>
+  );
+}
+
+function AssessmentList({
+  assessments,
+  cta,
+}: {
+  assessments: StudentAssessment[];
+  cta: string;
+}) {
+  return (
+    <ul className="grid gap-3 md:grid-cols-2">
+      {assessments.map((assessment) => {
+        const badge = assessment.submission
+          ? submissionBadge(assessment.submission.status, "student")
+          : null;
+        const href =
+          assessment.submission && assessment.submission.status !== "DRAFT"
+            ? `/student/results/${assessment.submission.id}`
+            : `/student/assessments/${assessment.id}`;
+
+        return (
+          <li key={assessment.id}>
+            <Link
+              href={href}
+              className="flex h-full flex-col rounded-xl border border-line bg-surface p-5 transition-colors hover:border-line-strong"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <h3 className="font-medium leading-snug">{assessment.title}</h3>
+                {badge ? (
+                  <StatusBadge label={badge.label} tone={badge.tone} size="sm" />
+                ) : (
+                  <StatusBadge label="Not started" tone="neutral" size="sm" />
+                )}
+              </div>
+              <p className="mt-1.5 text-sm text-muted">
+                {assessment.subject} · {assessment.grade} · {assessment.curriculum}
+              </p>
+              <div className="mt-4 flex items-center justify-between text-xs">
+                <span className="text-subtle">
+                  {assessment._count.questions} question
+                  {assessment._count.questions === 1 ? "" : "s"}
+                </span>
+                <span className="font-medium text-accent-text">{cta} &rarr;</span>
+              </div>
+            </Link>
+          </li>
+        );
+      })}
+    </ul>
   );
 }

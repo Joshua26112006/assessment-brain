@@ -2,117 +2,164 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { requireStudentSession } from "@/lib/require-student";
 import { getAvailableAssessmentsForStudent } from "@/lib/student-assessment-access";
+import { PageHeader, MetricCard, Section, EmptyState, Card } from "@/components/ui/Page";
+import StatusBadge, { submissionBadge } from "@/components/ui/StatusBadge";
+import { buttonClass } from "@/components/ui/styles";
 
 export default async function StudentDashboardPage() {
   const session = await requireStudentSession();
   const studentId = session.user.id;
 
-  const [available, inProgressCount, submittedCount, evaluatedCount] = await Promise.all([
-    getAvailableAssessmentsForStudent(studentId),
-    prisma.submission.count({ where: { studentId, status: "DRAFT" } }),
-    prisma.submission.count({ where: { studentId, status: { in: ["SUBMITTED", "PROCESSING", "NEEDS_REVIEW"] } } }),
-    prisma.submission.count({ where: { studentId, status: "COMPLETED" } }),
-  ]);
+  const [available, inProgressCount, submittedCount, evaluatedCount, recentResults] =
+    await Promise.all([
+      getAvailableAssessmentsForStudent(studentId),
+      prisma.submission.count({ where: { studentId, status: "DRAFT" } }),
+      prisma.submission.count({
+        where: { studentId, status: { in: ["SUBMITTED", "PROCESSING", "NEEDS_REVIEW"] } },
+      }),
+      prisma.submission.count({ where: { studentId, status: "COMPLETED" } }),
+      prisma.submission.findMany({
+        where: { studentId, status: { not: "DRAFT" } },
+        orderBy: { submittedAt: "desc" },
+        take: 3,
+        select: {
+          id: true,
+          status: true,
+          assessment: { select: { title: true } },
+        },
+      }),
+    ]);
 
   const notStarted = available.filter((a) => !a.submission);
   const inProgress = available.filter((a) => a.submission?.status === "DRAFT");
 
-  const summaryCards = [
-    { label: "Available Assessments", value: notStarted.length },
-    { label: "In Progress", value: inProgressCount },
-    { label: "Submitted", value: submittedCount },
-    { label: "Evaluated", value: evaluatedCount },
-  ];
+  const nextUp = inProgress[0] ?? notStarted[0] ?? null;
 
   return (
     <div>
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold tracking-tight">
-          Student Dashboard
-        </h1>
-        <Link
-          href="/student/assessments"
-          className="rounded-md bg-black px-4 py-2 text-sm font-medium text-white dark:bg-white dark:text-black"
-        >
-          View Assessments
-        </Link>
-      </div>
+      <PageHeader
+        title={`Hi, ${session.user.name?.split(" ")[0] ?? "there"}`}
+        description="Your assessments and results in one place."
+        actions={
+          <Link href="/student/assessments" className={buttonClass("secondary")}>
+            All assessments
+          </Link>
+        }
+      />
 
-      <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {summaryCards.map((card) => (
-          <div
-            key={card.label}
-            className="rounded-lg border border-black/10 p-4 dark:border-white/15"
-          >
-            <p className="text-2xl font-semibold">{card.value}</p>
-            <p className="mt-1 text-xs text-black/60 dark:text-white/60">
-              {card.label}
-            </p>
+      {nextUp && (
+        <Card tone="accent" className="mb-8">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-accent-text">
+                {inProgress.length > 0 ? "Continue where you left off" : "Next up"}
+              </p>
+              <p className="mt-1.5 font-medium">{nextUp.title}</p>
+              <p className="mt-0.5 text-sm text-muted">
+                {nextUp.subject} · {nextUp._count.questions} question
+                {nextUp._count.questions === 1 ? "" : "s"}
+              </p>
+            </div>
+            <Link
+              href={
+                inProgress.length > 0
+                  ? `/student/assessments/${nextUp.id}/take`
+                  : `/student/assessments/${nextUp.id}`
+              }
+              className={buttonClass("primary")}
+            >
+              {inProgress.length > 0 ? "Continue" : "Start assessment"}
+            </Link>
           </div>
-        ))}
-      </div>
-
-      {inProgress.length > 0 && (
-        <section className="mt-8">
-          <h2 className="text-lg font-medium">Continue where you left off</h2>
-          <ul className="mt-4 flex flex-col gap-2">
-            {inProgress.map((assessment) => (
-              <li key={assessment.id}>
-                <Link
-                  href={`/student/assessments/${assessment.id}/take`}
-                  className="flex items-center justify-between rounded-lg border border-black/10 px-4 py-3 hover:border-black/30 dark:border-white/15 dark:hover:border-white/30"
-                >
-                  <span className="font-medium">{assessment.title}</span>
-                  <span className="text-sm text-black/60 dark:text-white/60">
-                    Continue &rarr;
-                  </span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </section>
+        </Card>
       )}
 
-      <section className="mt-8">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-medium">Available Assessments</h2>
-          <Link href="/student/assessments" className="text-sm hover:underline">
-            View all
-          </Link>
-        </div>
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <MetricCard label="Available" value={notStarted.length} href="/student/assessments" />
+        <MetricCard label="In progress" value={inProgressCount} />
+        <MetricCard label="Awaiting results" value={submittedCount} href="/student/results" />
+        <MetricCard label="Completed" value={evaluatedCount} href="/student/results" />
+      </div>
 
+      <Section
+        className="mt-10"
+        title="Available assessments"
+        actions={
+          <Link
+            href="/student/assessments"
+            className="text-sm font-medium text-accent-text hover:underline"
+          >
+            View all &rarr;
+          </Link>
+        }
+      >
         {notStarted.length === 0 ? (
-          <div className="mt-4 rounded-lg border border-dashed border-black/15 p-8 text-center dark:border-white/20">
-            <p className="text-sm text-black/60 dark:text-white/60">
-              {available.length === 0
-                ? "No assessments are available yet."
-                : "You've started all currently available assessments."}
-            </p>
-          </div>
+          <EmptyState
+            title={
+              available.length === 0
+                ? "No assessments yet"
+                : "You've started everything available"
+            }
+            description={
+              available.length === 0
+                ? "Once your teacher publishes an assessment for your class, it will appear here."
+                : "Finish what's in progress, or check your results."
+            }
+          />
         ) : (
-          <ul className="mt-4 flex flex-col gap-2">
+          <ul className="flex flex-col gap-2">
             {notStarted.slice(0, 5).map((assessment) => (
               <li key={assessment.id}>
                 <Link
                   href={`/student/assessments/${assessment.id}`}
-                  className="flex items-center justify-between rounded-lg border border-black/10 px-4 py-3 hover:border-black/30 dark:border-white/15 dark:hover:border-white/30"
+                  className="flex items-center justify-between gap-4 rounded-xl border border-line bg-surface px-4 py-3 transition-colors hover:border-line-strong"
                 >
-                  <div>
-                    <p className="font-medium">{assessment.title}</p>
-                    <p className="text-xs text-black/50 dark:text-white/50">
-                      {assessment._count.questions} question
+                  <div className="min-w-0">
+                    <p className="truncate font-medium">{assessment.title}</p>
+                    <p className="mt-0.5 text-xs text-muted">
+                      {assessment.subject} · {assessment._count.questions} question
                       {assessment._count.questions === 1 ? "" : "s"}
                     </p>
                   </div>
-                  <span className="text-sm text-black/60 dark:text-white/60">
-                    Start &rarr;
-                  </span>
+                  <span className="shrink-0 text-sm font-medium text-accent-text">Start &rarr;</span>
                 </Link>
               </li>
             ))}
           </ul>
         )}
-      </section>
+      </Section>
+
+      {recentResults.length > 0 && (
+        <Section
+          className="mt-10"
+          title="Recent results"
+          actions={
+            <Link
+              href="/student/results"
+              className="text-sm font-medium text-accent-text hover:underline"
+            >
+              View all &rarr;
+            </Link>
+          }
+        >
+          <ul className="flex flex-col gap-2">
+            {recentResults.map((submission) => {
+              const badge = submissionBadge(submission.status, "student");
+              return (
+                <li key={submission.id}>
+                  <Link
+                    href={`/student/results/${submission.id}`}
+                    className="flex items-center justify-between gap-4 rounded-xl border border-line bg-surface px-4 py-3 transition-colors hover:border-line-strong"
+                  >
+                    <p className="truncate font-medium">{submission.assessment.title}</p>
+                    <StatusBadge label={badge.label} tone={badge.tone} size="sm" />
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </Section>
+      )}
     </div>
   );
 }

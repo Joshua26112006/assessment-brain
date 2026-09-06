@@ -1,78 +1,101 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 
 /**
- * Top-level navigation. Shows role-appropriate section links plus
- * sign-out for authenticated users, and Login/Register for everyone else.
+ * Top-level navigation: role-appropriate section links, the signed-in
+ * identity, and sign-out. The active section is marked so a user always knows
+ * which part of the product they're in.
  */
+
+const TEACHER_LINKS = [
+  { href: "/teacher/dashboard", label: "Dashboard" },
+  { href: "/teacher/assessments", label: "Assessments" },
+  { href: "/teacher/review-queue", label: "Review Queue" },
+];
+
+const STUDENT_LINKS = [
+  { href: "/student/dashboard", label: "Dashboard" },
+  { href: "/student/assessments", label: "Assessments" },
+  { href: "/student/results", label: "Results" },
+];
+
 export default function NavBar() {
   const { data: session, status } = useSession();
+  const pathname = usePathname();
+
+  const links =
+    status === "authenticated"
+      ? session.user.role === "TEACHER"
+        ? TEACHER_LINKS
+        : STUDENT_LINKS
+      : [];
 
   return (
-    <header className="border-b border-black/10 dark:border-white/15">
-      <nav className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-x-6 gap-y-2 px-6 py-4">
-        <Link href="/" className="font-semibold tracking-tight">
+    <header className="sticky top-0 z-40 border-b border-line bg-background/85 backdrop-blur">
+      <nav className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-6 gap-y-3 px-6 py-3">
+        <Link
+          href="/"
+          className="flex items-center gap-2 font-semibold tracking-tight text-foreground"
+        >
+          <span
+            aria-hidden="true"
+            className="grid h-7 w-7 place-items-center rounded-md bg-accent text-[13px] font-bold text-accent-fg"
+          >
+            AB
+          </span>
           Assessment Brain
         </Link>
 
-        {status === "authenticated" && session.user.role === "TEACHER" && (
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-            <Link href="/teacher/dashboard" className="hover:underline">
-              Dashboard
-            </Link>
-            <Link href="/teacher/assessments" className="hover:underline">
-              Assessments
-            </Link>
-            <Link href="/teacher/assessments/create" className="hover:underline">
-              Create Assessment
-            </Link>
-            <Link href="/teacher/review-queue" className="hover:underline">
-              Review Queue
-            </Link>
+        {links.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1 text-sm">
+            {links.map((link) => {
+              const isActive = pathname === link.href || pathname.startsWith(`${link.href}/`);
+              return (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  aria-current={isActive ? "page" : undefined}
+                  className={`rounded-md px-2.5 py-1.5 transition-colors ${
+                    isActive
+                      ? "bg-accent-soft font-medium text-accent-text"
+                      : "text-muted hover:bg-surface-muted hover:text-foreground"
+                  }`}
+                >
+                  {link.label}
+                </Link>
+              );
+            })}
           </div>
         )}
 
-        {status === "authenticated" && session.user.role === "STUDENT" && (
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-            <Link href="/student/dashboard" className="hover:underline">
-              Dashboard
-            </Link>
-            <Link href="/student/assessments" className="hover:underline">
-              Assessments
-            </Link>
-            <Link href="/student/results" className="hover:underline">
-              Results
-            </Link>
-          </div>
-        )}
-
-        <div className="flex items-center gap-3 text-sm">
+        <div className="ml-auto flex items-center gap-3 text-sm">
           {status === "authenticated" ? (
             <>
-              <span className="text-black/60 dark:text-white/60">
-                {session.user.name}{" "}
-                <span className="rounded bg-black/5 px-1.5 py-0.5 text-xs uppercase tracking-wide dark:bg-white/10">
+              <span className="hidden items-center gap-2 text-muted sm:flex">
+                {session.user.name}
+                <span className="rounded border border-line bg-surface-muted px-1.5 py-0.5 text-[11px] font-medium uppercase tracking-wide text-subtle">
                   {session.user.role}
                 </span>
               </span>
               <button
                 type="button"
                 onClick={() => signOut({ callbackUrl: "/" })}
-                className="rounded-md border border-black/15 px-3 py-1.5 text-sm hover:bg-black/5 dark:border-white/20 dark:hover:bg-white/10"
+                className="rounded-md border border-line-strong px-3 py-1.5 text-sm font-medium transition-colors hover:bg-surface-muted"
               >
                 Sign out
               </button>
             </>
           ) : status === "unauthenticated" ? (
             <>
-              <Link href="/login" className="hover:underline">
+              <Link href="/login" className="text-muted hover:text-foreground">
                 Login
               </Link>
               <Link
                 href="/register"
-                className="rounded-md bg-black px-3 py-1.5 text-sm font-medium text-white dark:bg-white dark:text-black"
+                className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-fg transition-colors hover:bg-accent-hover"
               >
                 Register
               </Link>

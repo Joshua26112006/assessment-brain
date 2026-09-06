@@ -6,7 +6,7 @@ import { after } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireStudentSession } from "@/lib/require-student";
 import { runPipelineForQuestionResponse } from "@/lib/assessment/pipeline";
-import { deriveAggregateSubmissionStatus, summarizeQuestionResponseStatuses } from "@/lib/pipeline/submissionStatus";
+import { recalculateSubmissionStatus } from "@/lib/assessment/submissionStatusSync";
 
 export type ActionState = { error?: string; success?: boolean };
 
@@ -137,18 +137,10 @@ export async function submitAssessment(
     // existing SubmissionStatus enum values (PROCESSING/COMPLETED/
     // NEEDS_REVIEW/FAILED already exist for exactly this) rather than a
     // new column — re-derived fresh from QuestionResponse so it can't
-    // drift out of sync with the per-question outcomes.
-    const finalResponses = await prisma.questionResponse.findMany({
-      where: { submissionId },
-      select: { status: true },
-    });
-    const summary = summarizeQuestionResponseStatuses(finalResponses.map((r) => r.status));
-    await prisma.submission
-      .update({
-        where: { id: submissionId },
-        data: { status: deriveAggregateSubmissionStatus(summary) },
-      })
-      .catch(() => {});
+    // drift out of sync with the per-question outcomes. Shared with the
+    // teacher review workflow, which re-derives the same way after a
+    // human decision changes a response's status.
+    await recalculateSubmissionStatus(prisma, submissionId).catch(() => {});
   });
 
   revalidatePath("/student/assessments");

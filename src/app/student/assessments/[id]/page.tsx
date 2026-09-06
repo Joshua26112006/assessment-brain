@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { requireStudentSession } from "@/lib/require-student";
-import {
-  getEligibleAssessmentOrNotFound,
-} from "@/lib/student-assessment-access";
+import { getEligibleAssessmentOrNotFound } from "@/lib/student-assessment-access";
 import { prisma } from "@/lib/prisma";
+import { PageHeader, Card } from "@/components/ui/Page";
+import StatusBadge, { submissionBadge } from "@/components/ui/StatusBadge";
+import { buttonClass } from "@/components/ui/styles";
 
 export default async function StudentAssessmentDetailPage({
   params,
@@ -16,57 +17,71 @@ export default async function StudentAssessmentDetailPage({
 
   const existingSubmission = await prisma.submission.findUnique({
     where: { assessmentId_studentId: { assessmentId: id, studentId: session.user.id } },
-    select: { status: true },
+    select: { id: true, status: true },
   });
 
   const alreadySubmitted = existingSubmission && existingSubmission.status !== "DRAFT";
+  const totalMarks = assessment.questions.reduce((sum, q) => sum + Number(q.maximumMarks), 0);
+  const badge = existingSubmission ? submissionBadge(existingSubmission.status, "student") : null;
 
   return (
     <div className="mx-auto max-w-2xl">
-      <p className="text-sm text-black/50 dark:text-white/50">
-        <Link href="/student/assessments" className="hover:underline">
-          Assessments
-        </Link>{" "}
-        / {assessment.title}
-      </p>
-      <h1 className="mt-1 text-2xl font-semibold tracking-tight">
-        {assessment.title}
-      </h1>
-      <p className="mt-2 text-sm text-black/60 dark:text-white/60">
-        {assessment.subject} &middot; {assessment.grade} &middot;{" "}
-        {assessment.curriculum} &middot; Class: {assessment.class.name}
-      </p>
+      <PageHeader
+        breadcrumb={[
+          { label: "Assessments", href: "/student/assessments" },
+          { label: assessment.title },
+        ]}
+        title={assessment.title}
+        description={`${assessment.subject} · ${assessment.grade} · ${assessment.curriculum} · Class: ${assessment.class.name}`}
+        meta={badge ? <StatusBadge label={badge.label} tone={badge.tone} /> : undefined}
+      />
 
-      <div className="mt-6 rounded-lg border border-black/10 p-5 dark:border-white/15">
-        <h2 className="text-sm font-medium">Before you begin</h2>
-        <ul className="mt-2 list-inside list-disc text-sm text-black/70 dark:text-white/70">
-          <li>{assessment.questions.length} question{assessment.questions.length === 1 ? "" : "s"} in total</li>
+      <Card>
+        <h2 className="text-sm font-semibold">Before you begin</h2>
+        <dl className="mt-4 grid grid-cols-2 gap-4">
+          <div>
+            <dt className="text-xs text-subtle">Questions</dt>
+            <dd className="mt-0.5 text-lg font-semibold tabular-nums">
+              {assessment.questions.length}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-xs text-subtle">Total marks</dt>
+            <dd className="mt-0.5 text-lg font-semibold tabular-nums">{totalMarks}</dd>
+          </div>
+        </dl>
+
+        <ul className="mt-5 flex flex-col gap-2 border-t border-line pt-4 text-sm text-muted">
+          <li>Answer each question in your own words — there&apos;s no time limit.</li>
+          <li>Save each answer as you go. You can leave and come back before submitting.</li>
+          <li>Once you submit, your answers are locked and can no longer be edited.</li>
           <li>
-            Total marks:{" "}
-            {assessment.questions
-              .reduce((sum, q) => sum + Number(q.maximumMarks), 0)
-              .toString()}
+            Your answers are marked against your teacher&apos;s rubric, and anything uncertain is
+            checked by your teacher before it counts.
           </li>
-          <li>Your answers are saved as you go — you can leave and come back.</li>
-          <li>Once submitted, answers can no longer be edited.</li>
         </ul>
-      </div>
+      </Card>
 
-      <div className="mt-6">
+      <div className="mt-6 flex flex-wrap items-center gap-3">
         {alreadySubmitted ? (
-          <Link
-            href="/student/results"
-            className="inline-block rounded-md bg-black px-4 py-2 text-sm font-medium text-white dark:bg-white dark:text-black"
-          >
-            View submission status
-          </Link>
+          <>
+            <Link href={`/student/results/${existingSubmission.id}`} className={buttonClass("primary")}>
+              View your result
+            </Link>
+            <p className="text-sm text-muted">You&apos;ve already submitted this assessment.</p>
+          </>
         ) : (
-          <Link
-            href={`/student/assessments/${assessment.id}/take`}
-            className="inline-block rounded-md bg-black px-4 py-2 text-sm font-medium text-white dark:bg-white dark:text-black"
-          >
-            {existingSubmission ? "Continue Assessment" : "Start Assessment"}
-          </Link>
+          <>
+            <Link
+              href={`/student/assessments/${assessment.id}/take`}
+              className={buttonClass("primary")}
+            >
+              {existingSubmission ? "Continue assessment" : "Start assessment"}
+            </Link>
+            <Link href="/student/assessments" className={buttonClass("secondary")}>
+              Back
+            </Link>
+          </>
         )}
       </div>
     </div>

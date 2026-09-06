@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useRef, useEffect } from "react";
+import { buttonClass, inputClass, labelClass } from "@/components/ui/styles";
 import { createQuestion, type ActionState } from "./actions";
 
 const initialState: ActionState = {};
@@ -20,18 +21,28 @@ export default function AddQuestionForm({ assessmentId }: { assessmentId: string
     <form
       ref={formRef}
       action={formAction}
-      className="flex flex-col gap-3 rounded-lg border border-black/10 p-4 dark:border-white/15"
+      className="flex flex-col gap-3 rounded-xl border border-dashed border-line-strong bg-surface-muted p-5"
     >
-      <h3 className="text-sm font-medium">Add a question</h3>
-      <textarea
-        name="questionText"
-        placeholder="Question text"
-        rows={3}
-        className="w-full rounded-md border border-black/15 px-3 py-2 text-sm dark:border-white/20"
-      />
-      <div className="flex items-end gap-3">
-        <div>
-          <label htmlFor="maximumMarks" className="block text-xs text-black/60 dark:text-white/60">
+      <div>
+        <label htmlFor="questionText" className={labelClass}>
+          Add a question
+        </label>
+        <textarea
+          id="questionText"
+          name="questionText"
+          placeholder="e.g. Explain how photosynthesis converts light energy into chemical energy."
+          rows={3}
+          className={`${inputClass} mt-1.5`}
+        />
+      </div>
+
+      <div className="flex flex-wrap items-end gap-3">
+        {/* w-28 on the wrapper: inputClass already carries w-full, and pairing
+            it with a width utility on the same element left the result up to
+            Tailwind's utility ordering rather than this className — it
+            rendered full-width instead of narrow. */}
+        <div className="w-28">
+          <label htmlFor="maximumMarks" className="block text-xs font-medium text-muted">
             Maximum marks
           </label>
           <input
@@ -40,18 +51,15 @@ export default function AddQuestionForm({ assessmentId }: { assessmentId: string
             type="number"
             step="0.5"
             min="0.5"
-            className="mt-1 w-28 rounded-md border border-black/15 px-3 py-2 text-sm dark:border-white/20"
+            className={`${inputClass} mt-1`}
           />
         </div>
-        <button
-          type="submit"
-          disabled={isPending}
-          className="rounded-md bg-black px-4 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-white dark:text-black"
-        >
-          {isPending ? "Adding..." : "Add question"}
+        <button type="submit" disabled={isPending} className={buttonClass("primary")}>
+          {isPending ? "Adding…" : "Add question"}
         </button>
       </div>
-      {state.error && <p className="text-sm text-red-600">{state.error}</p>}
+
+      {state.error && <p className="text-sm font-medium text-danger">{state.error}</p>}
     </form>
   );
 }

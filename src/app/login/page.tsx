@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { signIn, getSession } from "next-auth/react";
 import { dashboardPathForRole } from "@/lib/dashboard-path";
+import { buttonClass, inputClass, labelClass } from "@/components/ui/styles";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -44,19 +45,23 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="mx-auto max-w-sm">
+    <div className="mx-auto max-w-sm py-6">
       <h1 className="text-2xl font-semibold tracking-tight">Sign in</h1>
-      <p className="mt-2 text-sm text-black/60 dark:text-white/60">
+      <p className="mt-2 text-sm text-muted">
         Don&apos;t have an account?{" "}
-        <Link href="/register" className="underline">
+        <Link href="/register" className="font-medium text-accent-text hover:underline">
           Create one
         </Link>
         .
       </p>
 
-      <form onSubmit={handleSubmit} noValidate className="mt-6 flex flex-col gap-4">
+      <form
+        onSubmit={handleSubmit}
+        noValidate
+        className="mt-6 flex flex-col gap-4 rounded-xl border border-line bg-surface p-6"
+      >
         <div>
-          <label htmlFor="email" className="block text-sm font-medium">
+          <label htmlFor="email" className={labelClass}>
             Email
           </label>
           <input
@@ -65,12 +70,12 @@ export default function LoginPage() {
             autoComplete="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="mt-1 w-full rounded-md border border-black/15 px-3 py-2 text-sm dark:border-white/20"
+            className={`${inputClass} mt-1.5`}
           />
         </div>
 
         <div>
-          <label htmlFor="password" className="block text-sm font-medium">
+          <label htmlFor="password" className={labelClass}>
             Password
           </label>
           <input
@@ -79,12 +84,12 @@ export default function LoginPage() {
             autoComplete="current-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="mt-1 w-full rounded-md border border-black/15 px-3 py-2 text-sm dark:border-white/20"
+            className={`${inputClass} mt-1.5`}
           />
         </div>
 
         {error && (
-          <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
+          <p className="rounded-lg border border-danger-line bg-danger-soft px-3 py-2 text-sm font-medium text-danger">
             {error}
           </p>
         )}
@@ -92,7 +97,7 @@ export default function LoginPage() {
         <button
           type="submit"
           disabled={isSubmitting}
-          className="mt-2 rounded-md bg-black px-4 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-white dark:text-black"
+          className={buttonClass("primary", "md", "mt-2 w-full")}
         >
           {isSubmitting ? "Signing in..." : "Sign In"}
         </button>

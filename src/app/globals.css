@@ -1,26 +1,173 @@
 @import "tailwindcss";
 
+/**
+ * Assessment Brain design tokens.
+ *
+ * The application already had a restrained, monochrome direction; this keeps
+ * that and gives it a vocabulary. Every colour is defined once here and flips
+ * with the viewer's colour scheme, so pages use semantic utilities
+ * (bg-surface, border-line, text-muted, bg-success-soft) instead of repeating
+ * `black/10 dark:white/15` pairs and drifting apart over time.
+ *
+ * Status colours are deliberately calm and few: this is an assessment tool
+ * where colour carries real meaning (needs review, failed, verified), so
+ * decorative colour would compete with information.
+ */
+
 :root {
   --background: #ffffff;
-  --foreground: #171717;
+  --foreground: #0f172a;
+
+  --surface: #ffffff;
+  --surface-muted: #f7f8fa;
+  --surface-raised: #ffffff;
+
+  --line: rgba(15, 23, 42, 0.10);
+  --line-strong: rgba(15, 23, 42, 0.20);
+
+  --muted: rgba(15, 23, 42, 0.62);
+  --subtle: rgba(15, 23, 42, 0.45);
+
+  /* Indigo reads as considered and academic rather than "tech startup". */
+  --accent: #4338ca;
+  --accent-hover: #3730a3;
+  --accent-fg: #ffffff;
+  --accent-soft: #eef2ff;
+  --accent-text: #3730a3;
+
+  --success: #15803d;
+  --success-soft: #f0fdf4;
+  --success-line: rgba(21, 128, 61, 0.25);
+
+  --warning: #b45309;
+  --warning-soft: #fffbeb;
+  --warning-line: rgba(180, 83, 9, 0.25);
+
+  --danger: #b91c1c;
+  --danger-soft: #fef2f2;
+  --danger-line: rgba(185, 28, 28, 0.25);
+
+  --info: #1d4ed8;
+  --info-soft: #eff6ff;
+  --info-line: rgba(29, 78, 216, 0.25);
+
+  /* Reserved for novel-approach detection, the one genuinely "discovery" state. */
+  --novel: #7e22ce;
+  --novel-soft: #faf5ff;
+  --novel-line: rgba(126, 34, 206, 0.25);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0b0c0f;
+    --foreground: #e8eaed;
+
+    --surface: #121317;
+    --surface-muted: #16181d;
+    --surface-raised: #191b21;
+
+    --line: rgba(255, 255, 255, 0.12);
+    --line-strong: rgba(255, 255, 255, 0.22);
+
+    --muted: rgba(232, 234, 237, 0.66);
+    --subtle: rgba(232, 234, 237, 0.45);
+
+    --accent: #818cf8;
+    --accent-hover: #a5b4fc;
+    --accent-fg: #10121a;
+    --accent-soft: rgba(129, 140, 248, 0.14);
+    --accent-text: #a5b4fc;
+
+    --success: #4ade80;
+    --success-soft: rgba(74, 222, 128, 0.12);
+    --success-line: rgba(74, 222, 128, 0.28);
+
+    --warning: #fbbf24;
+    --warning-soft: rgba(251, 191, 36, 0.12);
+    --warning-line: rgba(251, 191, 36, 0.28);
+
+    --danger: #f87171;
+    --danger-soft: rgba(248, 113, 113, 0.12);
+    --danger-line: rgba(248, 113, 113, 0.28);
+
+    --info: #60a5fa;
+    --info-soft: rgba(96, 165, 250, 0.12);
+    --info-line: rgba(96, 165, 250, 0.28);
+
+    --novel: #c084fc;
+    --novel-soft: rgba(192, 132, 252, 0.12);
+    --novel-line: rgba(192, 132, 252, 0.28);
+  }
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
+  --color-surface-raised: var(--surface-raised);
+
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+
+  --color-muted: var(--muted);
+  --color-subtle: var(--subtle);
+
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-fg: var(--accent-fg);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-text: var(--accent-text);
+
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-success-line: var(--success-line);
+
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-warning-line: var(--warning-line);
+
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-danger-line: var(--danger-line);
+
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --color-info-line: var(--info-line);
+
+  --color-novel: var(--novel);
+  --color-novel-soft: var(--novel-soft);
+  --color-novel-line: var(--novel-line);
+
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  /* Was hardcoded to Arial, which silently overrode the Geist font the app
+     loads in layout.tsx — the whole product rendered in a fallback face. */
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+/* One visible, consistent keyboard focus treatment everywhere. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Native radio/checkbox controls otherwise render in the browser's default
+   blue regardless of the accent token — e.g. the register page's role picker
+   and the create-assessment class-mode radios. */
+input[type="radio"],
+input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+
+::selection {
+  background: var(--accent-soft);
+  color: var(--accent-text);
 }

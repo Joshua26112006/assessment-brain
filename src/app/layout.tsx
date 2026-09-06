@@ -15,8 +15,12 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Assessment Brain",
-  description: "AI-assisted assessment creation, evaluation, and grading.",
+  title: {
+    default: "Assessment Brain",
+    template: "%s · Assessment Brain",
+  },
+  description:
+    "AI-assisted assessment creation, evaluation, and grading, with a teacher in the loop.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
@@ -25,12 +29,18 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">
+      <body className="flex min-h-full flex-col bg-background text-foreground">
         <AuthProvider>
           <NavBar />
-          <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-10">
+          <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-10">
             {children}
           </main>
+          <footer className="border-t border-line">
+            <div className="mx-auto max-w-6xl px-6 py-5 text-xs text-subtle">
+              Assessment Brain — AI Decoder Academy. Marks are produced by rubric-based
+              evaluation and confirmed by teachers.
+            </div>
+          </footer>
         </AuthProvider>
       </body>
     </html>

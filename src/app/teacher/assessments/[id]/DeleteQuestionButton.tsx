@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
+import { buttonClass } from "@/components/ui/styles";
 import { deleteQuestion, type ActionState } from "./actions";
 
 const initialState: ActionState = {};
@@ -19,16 +20,12 @@ export default function DeleteQuestionButton({ questionId }: { questionId: strin
           }
         }}
       >
-        <button
-          type="submit"
-          disabled={isPending}
-          className="rounded-md border border-red-200 px-2.5 py-1 text-xs text-red-700 hover:bg-red-50 disabled:opacity-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950"
-        >
-          {isPending ? "Deleting..." : "Delete"}
+        <button type="submit" disabled={isPending} className={buttonClass("danger", "sm")}>
+          {isPending ? "Deleting…" : "Delete"}
         </button>
       </form>
       {state.error && (
-        <p className="max-w-48 text-right text-xs text-red-600">{state.error}</p>
+        <p className="max-w-52 text-right text-xs font-medium text-danger">{state.error}</p>
       )}
     </div>
   );

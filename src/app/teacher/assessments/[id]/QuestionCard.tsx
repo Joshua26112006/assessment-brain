@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import StatusBadge from "@/components/ui/StatusBadge";
+import { buttonClass } from "@/components/ui/styles";
 import EditQuestionForm from "./EditQuestionForm";
 import DeleteQuestionButton from "./DeleteQuestionButton";
 import RubricEditor from "./RubricEditor";
@@ -26,30 +28,41 @@ export default function QuestionCard({ question }: { question: QuestionCardData 
   const [isEditing, setIsEditing] = useState(false);
   const [isRubricOpen, setIsRubricOpen] = useState(false);
 
+  const activeVersion = question.rubric?.activeVersion ?? null;
+  const checkpointCount = activeVersion?.markingCheckpoints.length ?? 0;
+  const approachCount = activeVersion?.solutionApproaches.length ?? 0;
+
   return (
-    <div className="rounded-lg border border-black/10 p-4 dark:border-white/15">
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex-1">
-          <span className="text-xs font-medium text-black/50 dark:text-white/50">
-            Question {question.questionNumber} &middot; {question.maximumMarks} marks
-          </span>
+    <article className="rounded-xl border border-line bg-surface">
+      <div className="flex items-start justify-between gap-4 p-5">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span
+              aria-hidden="true"
+              className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-surface-muted text-xs font-semibold text-muted"
+            >
+              {question.questionNumber}
+            </span>
+            <span className="text-xs font-medium text-subtle">
+              Question {question.questionNumber} · {question.maximumMarks} marks
+            </span>
+          </div>
 
           {isEditing ? (
-            <EditQuestionForm
-              question={question}
-              onDone={() => setIsEditing(false)}
-            />
+            <EditQuestionForm question={question} onDone={() => setIsEditing(false)} />
           ) : (
-            <p className="mt-1 whitespace-pre-wrap text-sm">{question.questionText}</p>
+            <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed">
+              {question.questionText}
+            </p>
           )}
         </div>
 
         {!isEditing && (
-          <div className="flex shrink-0 gap-2">
+          <div className="flex shrink-0 items-start gap-2">
             <button
               type="button"
               onClick={() => setIsEditing(true)}
-              className="rounded-md border border-black/15 px-2.5 py-1 text-xs hover:bg-black/5 dark:border-white/20 dark:hover:bg-white/10"
+              className={buttonClass("secondary", "sm")}
             >
               Edit
             </button>
@@ -58,24 +71,34 @@ export default function QuestionCard({ question }: { question: QuestionCardData 
         )}
       </div>
 
-      <div className="mt-3 border-t border-black/10 pt-3 dark:border-white/15">
+      <div className="border-t border-line px-5 py-3">
         <button
           type="button"
           onClick={() => setIsRubricOpen((open) => !open)}
-          className="text-xs font-medium text-black/70 hover:underline dark:text-white/70"
+          aria-expanded={isRubricOpen}
+          className="flex w-full flex-wrap items-center gap-2 text-left text-sm"
         >
-          {question.rubric?.activeVersion
-            ? `Rubric: version ${question.rubric.activeVersion.versionNumber} active (${question.rubric.versionCount} total) ${isRubricOpen ? "▲" : "▼"}`
-            : `No rubric yet ${isRubricOpen ? "▲" : "▼"}`}
+          {activeVersion ? (
+            <>
+              <StatusBadge label={`Rubric v${activeVersion.versionNumber}`} tone="success" size="sm" />
+              <span className="text-xs text-muted">
+                {approachCount} approach{approachCount === 1 ? "" : "es"} · {checkpointCount}{" "}
+                checkpoint{checkpointCount === 1 ? "" : "s"}
+                {question.rubric && question.rubric.versionCount > 1
+                  ? ` · ${question.rubric.versionCount} versions`
+                  : ""}
+              </span>
+            </>
+          ) : (
+            <StatusBadge label="No rubric yet" tone="warning" size="sm" />
+          )}
+          <span className="ml-auto text-xs font-medium text-accent-text">
+            {isRubricOpen ? "Hide rubric" : activeVersion ? "Edit rubric" : "Add rubric"}
+          </span>
         </button>
 
-        {isRubricOpen && (
-          <RubricEditor
-            questionId={question.id}
-            activeVersion={question.rubric?.activeVersion ?? null}
-          />
-        )}
+        {isRubricOpen && <RubricEditor questionId={question.id} activeVersion={activeVersion} />}
       </div>
-    </div>
+    </article>
   );
 }
