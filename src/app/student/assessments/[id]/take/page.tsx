@@ -5,10 +5,21 @@ import {
   getOrCreateSubmission,
 } from "@/lib/student-assessment-access";
 import { prisma } from "@/lib/prisma";
-import { PageHeader } from "@/components/ui/Page";
-import AnswerForm from "./AnswerForm";
-import SubmitAssessmentButton from "./SubmitAssessmentButton";
+import { PageHeader, Card } from "@/components/ui/Page";
+import QuestionPaper from "./QuestionPaper";
+import AnswerSheetWorkflow from "./AnswerSheetWorkflow";
 
+/**
+ * The primary student assessment-taking experience: a read-only question
+ * paper plus the handwritten answer-sheet upload workflow (Phase 3.2).
+ *
+ * The previous per-question typed-answer interface (AnswerForm,
+ * SubmitAssessmentButton, actions.ts) is intentionally left in place and
+ * fully functional underneath — this page simply no longer reaches it,
+ * since the product now expects answers written on paper and photographed
+ * rather than typed in per-question. See the Phase 3.2 report for why the
+ * old files were preserved rather than deleted.
+ */
 export default async function TakeAssessmentPage({
   params,
 }: {
@@ -25,30 +36,20 @@ export default async function TakeAssessmentPage({
     redirect(`/student/results/${submission.id}`);
   }
 
-  const responses = await prisma.questionResponse.findMany({
+  const pages = await prisma.answerSheetPage.findMany({
     where: { submissionId: submission.id },
+    orderBy: { pageNumber: "asc" },
+    select: {
+      id: true,
+      pageNumber: true,
+      originalFilename: true,
+      mimeType: true,
+      fileSizeBytes: true,
+      createdAt: true,
+    },
   });
-  const answerByQuestionId = new Map(
-    responses.map((r) => [
-      r.questionId,
-      typeof r.studentAnswer === "object" &&
-      r.studentAnswer !== null &&
-      "text" in r.studentAnswer &&
-      typeof (r.studentAnswer as { text: unknown }).text === "string"
-        ? (r.studentAnswer as { text: string }).text
-        : "",
-    ]),
-  );
 
-  // "Answered" means a saved, non-empty answer — an empty saved response
-  // shouldn't count towards progress.
-  const answeredCount = assessment.questions.filter(
-    (q) => (answerByQuestionId.get(q.id) ?? "").trim().length > 0,
-  ).length;
-  const totalQuestions = assessment.questions.length;
-  const unansweredCount = totalQuestions - answeredCount;
-  const progressPercent =
-    totalQuestions === 0 ? 0 : Math.round((answeredCount / totalQuestions) * 100);
+  const totalMarks = assessment.questions.reduce((sum, q) => sum + Number(q.maximumMarks), 0);
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -59,61 +60,34 @@ export default async function TakeAssessmentPage({
           { label: "Answering" },
         ]}
         title={assessment.title}
-        description="Save each answer as you go. Nothing is submitted until you choose to submit."
+        description="Read every question below, then write your answers on paper and upload photos of each page."
       />
 
-      {/* Progress — reflects saved answers only. */}
-      <div className="sticky top-16 z-30 -mx-1 mb-6 rounded-xl border border-line bg-surface/95 p-4 backdrop-blur">
-        <div className="flex items-center justify-between gap-4 text-sm">
-          <span className="font-medium">
-            {answeredCount} of {totalQuestions} answered
-          </span>
-          <span className="text-xs text-subtle">Saved answers only</span>
-        </div>
-        <div
-          role="progressbar"
-          aria-valuenow={answeredCount}
-          aria-valuemin={0}
-          aria-valuemax={totalQuestions}
-          aria-label="Questions answered"
-          className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-surface-muted"
-        >
-          <div
-            className="h-full rounded-full bg-accent transition-all"
-            style={{ width: `${progressPercent}%` }}
-          />
-        </div>
-      </div>
+      <QuestionPaper
+        questions={assessment.questions.map((q) => ({
+          id: q.id,
+          questionNumber: q.questionNumber,
+          questionText: q.questionText,
+          maximumMarks: Number(q.maximumMarks),
+        }))}
+        totalMarks={totalMarks}
+      />
 
-      <div className="flex flex-col gap-4">
-        {assessment.questions.map((question) => (
-          <AnswerForm
-            key={question.id}
-            submissionId={submission.id}
-            questionId={question.id}
-            questionNumber={question.questionNumber}
-            questionText={question.questionText}
-            maximumMarks={Number(question.maximumMarks)}
-            initialAnswer={answerByQuestionId.get(question.id) ?? ""}
-          />
-        ))}
-      </div>
+      <Card className="mb-6" tone="muted">
+        <h2 className="text-sm font-semibold">Write your answers on paper</h2>
+        <ol className="mt-3 flex flex-col gap-1.5 pl-5 text-sm text-muted marker:text-subtle list-decimal">
+          <li>Read every question carefully before you start writing.</li>
+          <li>Write your answers by hand on plain paper.</li>
+          <li>Keep each page well-lit and fully visible — no cropped edges or shadows.</li>
+          <li>Photograph or scan every page of your answer sheet.</li>
+          <li>Upload your pages below, in the same order you wrote them.</li>
+        </ol>
+      </Card>
 
-      <div className="mt-8 flex flex-wrap items-center justify-between gap-4 rounded-xl border border-line bg-surface p-5">
-        <div>
-          <p className="text-sm font-medium">Ready to submit?</p>
-          <p className="mt-1 text-sm text-muted">
-            {unansweredCount > 0
-              ? `${unansweredCount} question${unansweredCount === 1 ? "" : "s"} still without a saved answer.`
-              : "All questions have a saved answer."}{" "}
-            Submitting locks your answers and starts marking.
-          </p>
-        </div>
-        <SubmitAssessmentButton
-          submissionId={submission.id}
-          unansweredCount={unansweredCount}
-        />
-      </div>
+      <AnswerSheetWorkflow
+        submissionId={submission.id}
+        initialPages={pages}
+      />
     </div>
   );
 }

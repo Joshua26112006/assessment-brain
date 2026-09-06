@@ -52,9 +52,10 @@ export default async function StudentAssessmentDetailPage({
         </dl>
 
         <ul className="mt-5 flex flex-col gap-2 border-t border-line pt-4 text-sm text-muted">
-          <li>Answer each question in your own words — there&apos;s no time limit.</li>
-          <li>Save each answer as you go. You can leave and come back before submitting.</li>
-          <li>Once you submit, your answers are locked and can no longer be edited.</li>
+          <li>You&apos;ll see the full question paper first — there&apos;s no time limit.</li>
+          <li>Write your answers by hand on paper, then photograph or scan each page.</li>
+          <li>Upload your pages whenever you&apos;re ready. You can leave and come back before submitting.</li>
+          <li>Once you submit, your answer sheets are locked and can no longer be changed.</li>
           <li>
             Your answers are marked against your teacher&apos;s rubric, and anything uncertain is
             checked by your teacher before it counts.
