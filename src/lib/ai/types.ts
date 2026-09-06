@@ -1,3 +1,5 @@
+import type { ChatCompletionContentPart } from "openai/resources/chat/completions";
+
 /**
  * Shared AI-infrastructure types — request/response plumbing only. Pipeline
  * *contracts* (what each stage produces) live in src/types/pipeline.ts;
@@ -12,6 +14,19 @@ export interface StructuredAiCallOptions {
   systemPrompt: string;
   userPrompt: string;
   /** Lower favors consistency, which matters for an evaluation pipeline. Default 0.2. */
+  temperature?: number;
+  maxAttempts?: number;
+}
+
+/**
+ * Like StructuredAiCallOptions, but the user turn is multimodal content
+ * parts (text, images, files) instead of a single string — see
+ * callStructuredAiWithContent, the only function that accepts this.
+ */
+export interface StructuredAiCallWithContentOptions {
+  model: string;
+  systemPrompt: string;
+  userContent: ChatCompletionContentPart[];
   temperature?: number;
   maxAttempts?: number;
 }

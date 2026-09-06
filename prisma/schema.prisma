@@ -112,15 +112,118 @@ model Assessment {
   teacher    User             @relation("AssessmentTeacher", fields: [teacherId], references: [id], onDelete: Restrict)
   classId    String
   class      Class            @relation(fields: [classId], references: [id], onDelete: Restrict)
-  createdAt  DateTime         @default(now())
-  updatedAt  DateTime         @updatedAt
 
-  questions   Question[]
-  submissions Submission[]
-  reviewItems ReviewItem[]
+  /// Free-text instructions shown to students alongside the question paper
+  /// (e.g. "Answer all questions. Show your working."). Nullable because
+  /// most existing assessments were created before this field existed and
+  /// have none; populated either by a teacher typing it directly or by
+  /// approving an AI-extracted question-paper draft that found one (Phase
+  /// 3.3) — see QuestionPaper below.
+  instructions String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  questions      Question[]
+  submissions    Submission[]
+  reviewItems    ReviewItem[]
+  questionPapers QuestionPaper[]
 
   @@index([status])
   @@index([classId])
+}
+
+// ---------------------------------------------------------------------------
+// QuestionPaper + QuestionPaperPage (Phase 3.3 — question-paper ingestion)
+// ---------------------------------------------------------------------------
+
+enum QuestionPaperExtractionStatus {
+  /// Uploaded, extraction not yet started.
+  PENDING
+  /// AI extraction currently running.
+  PROCESSING
+  /// Extraction succeeded — a draft exists and awaits teacher review.
+  EXTRACTED
+  /// Extraction failed; the uploaded pages are preserved and retry is offered.
+  FAILED
+  /// The teacher approved the draft; real Questions have been created from it.
+  /// Terminal — an approved QuestionPaper is never re-extracted or re-approved.
+  APPROVED
+}
+
+/// One teacher-uploaded question paper for an assessment, and the AI-assisted
+/// extraction attempt made from it. Deliberately independent of Question:
+/// this model only tracks ingestion of the *source document* and its
+/// *draft* extraction — it never becomes the source of truth for grading.
+/// Real Questions are only ever created by the explicit approval action
+/// (src/app/teacher/assessments/[id]/questionPaperActions.ts), never
+/// written directly from AI output.
+///
+/// At most one non-terminal (PENDING/PROCESSING/FAILED/EXTRACTED) draft is
+/// allowed per assessment at the application layer — a teacher must delete
+/// or approve the current draft before starting another — but this is not a
+/// database constraint, since an assessment may legitimately accumulate
+/// multiple APPROVED-then-superseded historical rows over time.
+model QuestionPaper {
+  id           String     @id @default(cuid())
+  assessmentId String
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+
+  extractionStatus QuestionPaperExtractionStatus @default(PENDING)
+
+  /// The structured draft produced by AI extraction (see
+  /// src/types/questionPaper.ts for its shape) — title/instructions/
+  /// questions exactly as the model read them, before any teacher edit.
+  /// Null until extraction completes at least once. The teacher's edits
+  /// during review live only in client state until Approve; this column is
+  /// never overwritten by a review edit, only by a fresh extraction attempt.
+  extractedContent Json?
+
+  /// Set when extractionStatus is FAILED — a plain-language reason shown to
+  /// the teacher, never a raw stack trace or provider error body.
+  extractionError String? @db.Text
+
+  approvedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  pages QuestionPaperPage[]
+
+  @@index([assessmentId])
+}
+
+/// One uploaded file belonging to a QuestionPaper's source document — either
+/// exactly one page whose mimeType is application/pdf (the PDF itself
+/// carries all of its pages internally), or one-to-many pages whose
+/// mimeType is an image type (one photographed/scanned page per row),
+/// mirroring AnswerSheetPage's precedent for exactly the same reason:
+/// students and teachers alike may only have a phone camera, not a scanner.
+model QuestionPaperPage {
+  id              String        @id @default(cuid())
+  questionPaperId String
+  questionPaper   QuestionPaper @relation(fields: [questionPaperId], references: [id], onDelete: Cascade)
+
+  /// 1-based position, database-enforced unique per paper (see @@unique
+  /// below) — same convention as AnswerSheetPage.pageNumber.
+  pageNumber Int
+
+  /// Server-generated storage identifier into storage/question-papers/ (see
+  /// src/lib/storage/questionPapers.ts) — never a public URL, never derived
+  /// from the original filename.
+  storageKey String @unique
+
+  originalFilename String
+
+  /// Sniffed from the file's actual bytes at upload time. One of
+  /// application/pdf, image/jpeg, image/png, image/webp.
+  mimeType String
+
+  fileSizeBytes Int
+
+  createdAt DateTime @default(now())
+
+  @@unique([questionPaperId, pageNumber])
 }
 
 /// One question within an assessment. Structured, AI-extracted question data

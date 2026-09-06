@@ -71,6 +71,7 @@ export default async function TakeAssessmentPage({
           maximumMarks: Number(q.maximumMarks),
         }))}
         totalMarks={totalMarks}
+        instructions={assessment.instructions}
       />
 
       <Card className="mb-6" tone="muted">

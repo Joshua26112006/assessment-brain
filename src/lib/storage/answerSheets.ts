@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { localFileStorage } from "./localFileStorage";
+import { detectImageMimeType } from "./fileSignatures";
 
 /**
  * Domain-specific answer-sheet storage operations. Route handlers call
@@ -25,33 +26,6 @@ const EXTENSION_BY_MIME_TYPE: Record<string, string> = {
   "image/png": "png",
   "image/webp": "webp",
 };
-
-/**
- * Sniffs the real file type from its first bytes rather than trusting the
- * browser-declared Content-Type (`file.type`, which is trivially spoofable
- * client-side). Deliberately dependency-free: three fixed magic-byte checks
- * cover every format this phase accepts, so no image-processing library is
- * needed just to validate uploads.
- */
-export function detectImageMimeType(buffer: Buffer): string | null {
-  if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
-    return "image/jpeg";
-  }
-  if (
-    buffer.length >= 8 &&
-    buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
-  ) {
-    return "image/png";
-  }
-  if (
-    buffer.length >= 12 &&
-    buffer.subarray(0, 4).toString("ascii") === "RIFF" &&
-    buffer.subarray(8, 12).toString("ascii") === "WEBP"
-  ) {
-    return "image/webp";
-  }
-  return null;
-}
 
 export interface AnswerSheetPageSummary {
   id: string;

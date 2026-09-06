@@ -16,9 +16,12 @@ export interface QuestionPaperQuestion {
 export default function QuestionPaper({
   questions,
   totalMarks,
+  instructions,
 }: {
   questions: QuestionPaperQuestion[];
   totalMarks: number;
+  /** The assessment's own instructions text, if the teacher provided one — never invented. */
+  instructions?: string | null;
 }) {
   return (
     <Card className="mb-6" padded={false}>
@@ -35,6 +38,13 @@ export default function QuestionPaper({
           </div>
         </dl>
       </div>
+
+      {instructions && (
+        <div className="border-b border-line bg-surface-muted p-5">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted">Instructions</p>
+          <p className="mt-1.5 whitespace-pre-wrap text-sm leading-relaxed">{instructions}</p>
+        </div>
+      )}
 
       <ol className="divide-y divide-line">
         {questions.map((question) => (

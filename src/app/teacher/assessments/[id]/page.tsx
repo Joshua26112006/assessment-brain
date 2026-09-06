@@ -7,6 +7,7 @@ import { buttonClass } from "@/components/ui/styles";
 import AddQuestionForm from "./AddQuestionForm";
 import QuestionCard from "./QuestionCard";
 import PublishButton from "./PublishButton";
+import QuestionPaperSection from "./QuestionPaperSection";
 
 export default async function AssessmentDetailPage({
   params,
@@ -124,6 +125,8 @@ export default async function AssessmentDetailPage({
           </p>
         </Card>
       )}
+
+      <QuestionPaperSection assessmentId={assessment.id} hasQuestions={questions.length > 0} />
 
       <Section
         title="Questions & rubrics"
