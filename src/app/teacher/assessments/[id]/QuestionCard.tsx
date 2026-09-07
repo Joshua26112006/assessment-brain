@@ -164,11 +164,21 @@ export default function QuestionCard({ question }: { question: QuestionCardData 
             </p>
             <RetryRubricButton questionId={question.id} />
           </div>
-        ) : (
+        ) : generationStatus === "GENERATING" ? (
           <div className="flex items-center gap-2">
-            <StatusBadge label="Generating rubric…" tone="info" size="sm" />
+            <StatusBadge label={readyBadge.label} tone={readyBadge.tone} size="sm" />
             <p className="text-xs text-muted">
               Assessment Brain is writing a marking rubric for this question.
+            </p>
+          </div>
+        ) : (
+          // PENDING — the normal, potentially long-lived state before the
+          // teacher clicks "Generate All Rubrics" above (Phase 4.3:
+          // generation is no longer triggered automatically).
+          <div className="flex items-center gap-2">
+            <StatusBadge label={readyBadge.label} tone={readyBadge.tone} size="sm" />
+            <p className="text-xs text-muted">
+              Not generated yet — use &quot;Generate All Rubrics&quot; above to create rubrics for every question at once.
             </p>
           </div>
         )}

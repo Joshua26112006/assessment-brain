@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireTeacherSession } from "@/lib/require-teacher";
-import { generateRubricForQuestion } from "@/lib/rubricGeneration";
+import { generateRubricForQuestion, generateAllRubricsForAssessment } from "@/lib/rubricGeneration";
 import { getAssessmentReadiness, describeAssessmentReadiness } from "@/lib/assessment/readiness";
 
 export type ActionState = { error?: string; success?: boolean };
@@ -59,9 +59,14 @@ export async function createQuestion(
 
   // A companion Rubric row (status PENDING) is created alongside every
   // question, whether it comes from approved extraction or this manual
-  // form, so the teacher is never asked to write a rubric by hand — see
-  // src/lib/rubricGeneration.
-  const question = await prisma.$transaction(async (tx) => {
+  // form, so the teacher is never asked to write a rubric by hand and so
+  // the assessment-level "Generate All Rubrics" action (Phase 4.3 — see
+  // generateAllRubrics below) can find and generate it later. Generation is
+  // deliberately NOT triggered here: the primary workflow is one
+  // intentional bulk action the teacher clicks once every question exists,
+  // not an automatic per-question kickoff that would make manually-added
+  // questions behave differently from extracted ones.
+  await prisma.$transaction(async (tx) => {
     const created = await tx.question.create({
       data: {
         assessmentId,
@@ -71,11 +76,6 @@ export async function createQuestion(
       },
     });
     await tx.rubric.create({ data: { questionId: created.id } });
-    return created;
-  });
-
-  after(async () => {
-    await generateRubricForQuestion(question.id);
   });
 
   revalidatePath(`/teacher/assessments/${assessmentId}`);
@@ -332,6 +332,58 @@ export async function retryRubricGeneration(
   });
 
   revalidatePath(`/teacher/assessments/${question.assessmentId}`);
+  return { success: true };
+}
+
+/**
+ * Phase 4.3 — the primary, assessment-level rubric generation trigger: one
+ * button the teacher clicks once every question exists ("Generate All
+ * Rubrics"), instead of triggering generation automatically per question.
+ * This is also the "Retry Failed Rubrics" action — the same call naturally
+ * only re-attempts FAILED (and any still-PENDING/missing) questions on a
+ * second click, since generateAllRubricsForAssessment always excludes
+ * already-READY and currently-GENERATING ones; the UI just changes the
+ * button's label depending on which case applies (see
+ * RubricGenerationActions.tsx).
+ *
+ * Restricted to DRAFT: once an assessment is PUBLISHED, students may already
+ * be submitting against its rubrics, so bulk-(re)generating them here is out
+ * of scope for this action — a published assessment's rubrics are expected
+ * to already be complete (publishAssessment guarantees that at the moment
+ * of publishing).
+ */
+export async function generateAllRubrics(
+  assessmentId: string,
+  _prevState: ActionState,
+): Promise<ActionState> {
+  const session = await requireTeacherSession();
+
+  const assessment = await prisma.assessment.findFirst({
+    where: { id: assessmentId, teacherId: session.user.id },
+    select: { status: true },
+  });
+  if (!assessment) {
+    return { error: "Assessment not found." };
+  }
+  if (assessment.status !== "DRAFT") {
+    return { error: `Assessment is already ${assessment.status.toLowerCase()} — rubrics can no longer be bulk-generated.` };
+  }
+
+  const questionCount = await prisma.question.count({ where: { assessmentId } });
+  if (questionCount === 0) {
+    return { error: "Add at least one question before generating rubrics." };
+  }
+
+  // Backgrounded for the same reason as retryRubricGeneration: this could
+  // involve many AI calls (one per question still needing generation), so
+  // the request returns immediately and the assessment page's watcher polls
+  // for the result rather than holding the connection open.
+  after(async () => {
+    await generateAllRubricsForAssessment(assessmentId);
+  });
+
+  revalidatePath(`/teacher/assessments/${assessmentId}`);
+  revalidatePath(`/teacher/assessments/${assessmentId}/rubrics`);
   return { success: true };
 }
 

@@ -1,6 +1,8 @@
 import { Card, MetricCard } from "@/components/ui/Page";
 import StatusBadge from "@/components/ui/StatusBadge";
 import PublishButton from "./PublishButton";
+import RubricGenerationActions from "./RubricGenerationActions";
+import RubricGenerationProgress from "./RubricGenerationProgress";
 import type { AssessmentReadiness, ReadinessExplanation } from "@/lib/assessment/readiness";
 
 const CARD_TONE = {
@@ -20,9 +22,17 @@ const CARD_TONE = {
  * uses server-side — so this can never show a state the publish action
  * would actually disagree with.
  *
+ * Phase 4.3 added the two interactive pieces on the right
+ * (RubricGenerationActions — "Generate All Rubrics" / "Retry Failed
+ * Rubrics" / "View Complete Assessment Rubric", depending on state) and the
+ * per-question checklist (RubricGenerationProgress) shown while not every
+ * rubric is ready yet — both still driven entirely by this same `readiness`
+ * object, never a second calculation.
+ *
  * Deliberately a server component: everything here is derived from already-
- * fetched data, and the only interactive piece (PublishButton) is its own
- * small client island, exactly like the rest of this page.
+ * fetched data, and the interactive pieces (PublishButton,
+ * RubricGenerationActions) are their own small client islands, exactly like
+ * the rest of this page.
  */
 export default function AssessmentReadinessPanel({
   assessmentId,
@@ -69,31 +79,11 @@ export default function AssessmentReadinessPanel({
             <span className="text-sm text-muted">{explanation.message}</span>
           </div>
 
-          {(readiness.generatingCount > 0 ||
-            readiness.pendingCount > 0 ||
-            readiness.failedCount > 0 ||
-            readiness.missingCount > 0) && (
-            <div className="mt-2 flex flex-wrap gap-2">
-              {readiness.generatingCount > 0 && (
-                <StatusBadge
-                  label={`${readiness.generatingCount} generating`}
-                  tone="info"
-                  size="sm"
-                />
-              )}
-              {readiness.pendingCount > 0 && (
-                <StatusBadge label={`${readiness.pendingCount} queued`} tone="neutral" size="sm" />
-              )}
-              {readiness.failedCount > 0 && (
-                <StatusBadge label={`${readiness.failedCount} failed`} tone="danger" size="sm" />
-              )}
-              {readiness.missingCount > 0 && (
-                <StatusBadge label={`${readiness.missingCount} missing`} tone="warning" size="sm" />
-              )}
-            </div>
+          {!readiness.isReady && readiness.totalQuestions > 0 && (
+            <RubricGenerationProgress readiness={readiness} />
           )}
 
-          {!readiness.isReady && readiness.totalQuestions > 0 && (
+          {(readiness.failedCount > 0 || readiness.missingCount > 0) && (
             <a
               href="#questions-and-rubrics"
               className="mt-3 inline-block text-xs font-medium text-accent-text hover:underline"
@@ -104,12 +94,15 @@ export default function AssessmentReadinessPanel({
         </div>
 
         {isDraft && (
-          <PublishButton
-            assessmentId={assessmentId}
-            status={status}
-            isReady={readiness.isReady}
-            notReadyMessage={explanation.message}
-          />
+          <div className="flex flex-col items-end gap-3">
+            <RubricGenerationActions assessmentId={assessmentId} readiness={readiness} />
+            <PublishButton
+              assessmentId={assessmentId}
+              status={status}
+              isReady={readiness.isReady}
+              notReadyMessage={explanation.message}
+            />
+          </div>
         )}
       </div>
     </Card>

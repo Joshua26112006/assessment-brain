@@ -22,6 +22,41 @@ export interface RubricViewerData {
 }
 
 /**
+ * Safely parses RubricVersion.solutionApproaches (untyped Json) into the
+ * shape this viewer (and RubricEditor's manual-override path) expects.
+ * Shared by every server component that reads a RubricVersion for display
+ * (the assessment detail page, and the Phase 4.3 consolidated rubric page)
+ * so there's exactly one place that defines "what a solution approach
+ * looks like once read back from the database."
+ */
+export function parseRubricApproaches(raw: unknown): RubricViewerApproach[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((item) => {
+    const record = item as Record<string, unknown>;
+    return {
+      label: typeof record.label === "string" ? record.label : "",
+      description: typeof record.description === "string" ? record.description : "",
+      steps: Array.isArray(record.steps)
+        ? record.steps.filter((s): s is string => typeof s === "string")
+        : [],
+      isPrimary: record.isPrimary === true,
+    };
+  });
+}
+
+/** Same as parseRubricApproaches, for RubricVersion.markingCheckpoints. */
+export function parseRubricCheckpoints(raw: unknown): RubricViewerCheckpoint[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((item) => {
+    const record = item as Record<string, unknown>;
+    return {
+      description: typeof record.description === "string" ? record.description : "",
+      marks: typeof record.marks === "number" ? record.marks : Number(record.marks) || 0,
+    };
+  });
+}
+
+/**
  * Read-only, polished display of a question's active rubric — the primary
  * way a teacher now inspects marking intelligence (Phase 4.1 Step 5),
  * replacing the manual editor as the default view. Deliberately read-only:

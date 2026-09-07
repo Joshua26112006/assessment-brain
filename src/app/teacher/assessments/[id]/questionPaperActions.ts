@@ -7,7 +7,6 @@ import { prisma } from "@/lib/prisma";
 import { requireTeacherSession } from "@/lib/require-teacher";
 import { findCurrentQuestionPaperForTeacher } from "@/lib/questionPaperAccess";
 import { runQuestionPaperExtraction } from "@/lib/questionPaperExtraction";
-import { generateRubricsForQuestions } from "@/lib/rubricGeneration";
 
 export type QuestionPaperActionState = { error?: string; success?: boolean };
 
@@ -101,20 +100,20 @@ function parseDraftQuestions(raw: string): { number: number; text: string; marks
  * data again server-side (Step 12.1 — never trusts what was merely
  * displayed), then creates the real Assessment Questions from it in one
  * transaction, each with a companion Rubric row (status PENDING) so the
- * detail page can immediately show "generating a rubric" rather than "no
- * rubric" while the background AI generation below is still starting up.
+ * assessment-level "Generate All Rubrics" action (Phase 4.3) can find and
+ * generate every question's rubric in one teacher-triggered batch.
  * Idempotent by design: a second approval click (double-click, or a
  * resubmitted form after the first response already landed) is detected via
  * the QuestionPaper's own status and treated as a no-op success rather than
  * creating duplicate Questions or surfacing a scary error for what the
  * teacher experiences as "nothing happened, so I tried again."
  *
- * Phase 4.1: once the transaction commits, kicks off automatic AI rubric
- * generation for every newly-created question in the background (after the
- * response is sent — the teacher isn't made to wait), mirroring the exact
- * background-task pattern already used for extraction itself and for
- * handwritten-submission processing. The teacher is never required to write
- * a rubric by hand for these questions.
+ * Rubric generation is deliberately NOT triggered here (Phase 4.3 — it was
+ * in Phase 4.1). The teacher now finalizes all their questions first (this
+ * approval, plus any manually-added ones), then explicitly clicks the
+ * assessment-level "Generate All Rubrics" action (see generateAllRubrics in
+ * actions.ts) once, rather than each approval silently kicking off its own
+ * per-question generation in the background.
  */
 export async function approveExtraction(
   assessmentId: string,
@@ -174,9 +173,8 @@ export async function approveExtraction(
   const title = String(formData.get("title") ?? "").trim();
   const instructionsRaw = String(formData.get("instructions") ?? "").trim();
 
-  let createdQuestionIds: string[] = [];
   try {
-    createdQuestionIds = await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx) => {
       // Atomic compare-and-swap, not a plain read-then-write: a SELECT here
       // (even inside a transaction) takes no row lock under PostgreSQL's
       // default READ COMMITTED isolation, so two genuinely concurrent
@@ -221,8 +219,6 @@ export async function approveExtraction(
       if (title) assessmentUpdate.title = title.slice(0, 300);
       assessmentUpdate.instructions = instructionsRaw ? instructionsRaw.slice(0, 4000) : null;
       await tx.assessment.update({ where: { id: assessmentId }, data: assessmentUpdate });
-
-      return created.map((q) => q.id);
     });
   } catch (error) {
     if (error instanceof AlreadyApprovedRaceError) {
@@ -240,10 +236,6 @@ export async function approveExtraction(
     }
     throw error;
   }
-
-  after(async () => {
-    await generateRubricsForQuestions(createdQuestionIds);
-  });
 
   revalidatePath(`/teacher/assessments/${assessmentId}`);
   return { success: true };

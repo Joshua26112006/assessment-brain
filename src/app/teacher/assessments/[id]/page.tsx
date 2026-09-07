@@ -10,33 +10,7 @@ import QuestionCard from "./QuestionCard";
 import QuestionPaperSection from "./QuestionPaperSection";
 import RubricGenerationWatcher from "./RubricGenerationWatcher";
 import AssessmentReadinessPanel from "./AssessmentReadinessPanel";
-import type { RubricViewerApproach, RubricViewerCheckpoint } from "./RubricViewer";
-
-function toApproaches(raw: unknown): RubricViewerApproach[] {
-  if (!Array.isArray(raw)) return [];
-  return raw.map((item) => {
-    const record = item as Record<string, unknown>;
-    return {
-      label: typeof record.label === "string" ? record.label : "",
-      description: typeof record.description === "string" ? record.description : "",
-      steps: Array.isArray(record.steps)
-        ? record.steps.filter((s): s is string => typeof s === "string")
-        : [],
-      isPrimary: record.isPrimary === true,
-    };
-  });
-}
-
-function toCheckpoints(raw: unknown): RubricViewerCheckpoint[] {
-  if (!Array.isArray(raw)) return [];
-  return raw.map((item) => {
-    const record = item as Record<string, unknown>;
-    return {
-      description: typeof record.description === "string" ? record.description : "",
-      marks: typeof record.marks === "number" ? record.marks : Number(record.marks) || 0,
-    };
-  });
-}
+import { parseRubricApproaches, parseRubricCheckpoints } from "./RubricViewer";
 
 export default async function AssessmentDetailPage({
   params,
@@ -66,8 +40,8 @@ export default async function AssessmentDetailPage({
                 versionNumber: q.rubric.activeVersion.versionNumber,
                 expectedAnswer: q.rubric.activeVersion.expectedAnswer,
                 partialCreditGuidance: q.rubric.activeVersion.partialCreditGuidance,
-                solutionApproaches: toApproaches(q.rubric.activeVersion.solutionApproaches),
-                markingCheckpoints: toCheckpoints(q.rubric.activeVersion.markingCheckpoints),
+                solutionApproaches: parseRubricApproaches(q.rubric.activeVersion.solutionApproaches),
+                markingCheckpoints: parseRubricCheckpoints(q.rubric.activeVersion.markingCheckpoints),
               }
             : null,
           versionCount: q.rubric.versions.length,
@@ -99,7 +73,11 @@ export default async function AssessmentDetailPage({
 
   return (
     <div>
-      <RubricGenerationWatcher active={readiness.generatingCount > 0 || readiness.pendingCount > 0} />
+      {/* Only polls while generation is actually in flight — a merely
+          PENDING question (Phase 4.3: generation is teacher-triggered, not
+          automatic) can sit unchanged for as long as the teacher likes, so
+          polling for that alone would just waste requests. */}
+      <RubricGenerationWatcher active={readiness.generatingCount > 0} />
 
       <PageHeader
         breadcrumb={[
@@ -159,12 +137,12 @@ export default async function AssessmentDetailPage({
       <Section
         id="questions-and-rubrics"
         title="Questions & rubrics"
-        description="Assessment Brain automatically generates a detailed marking rubric for every question — the expected answer, solution approach, marking checkpoints, and partial-credit guidance. Manually editing a rubric is still available as an advanced override."
+        description='Once every question exists, use "Generate All Rubrics" above to have Assessment Brain write a detailed marking rubric for each one — the expected answer, solution approach, marking checkpoints, and partial-credit guidance. Manually editing a rubric is still available as an advanced override.'
       >
         {questions.length === 0 ? (
           <EmptyState
             title="No questions yet"
-            description="Add your first question below, then Assessment Brain writes its rubric for you."
+            description="Add your first question below, or upload a question paper above — then generate rubrics for all of them at once."
           />
         ) : (
           <div className="flex flex-col gap-3">

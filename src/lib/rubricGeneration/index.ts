@@ -127,3 +127,55 @@ export async function generateRubricForQuestion(questionId: string): Promise<voi
 export async function generateRubricsForQuestions(questionIds: string[]): Promise<void> {
   await Promise.allSettled(questionIds.map((id) => generateRubricForQuestion(id)));
 }
+
+/**
+ * Phase 4.3 — the assessment-level "Generate All Rubrics" / "Retry Failed
+ * Rubrics" engine. Deliberately a thin orchestrator over the existing
+ * per-question engine above: it never talks to the AI or writes a
+ * RubricVersion itself, it only decides WHICH questions still need
+ * generateRubricForQuestion called on them, then reuses
+ * generateRubricsForQuestions unchanged.
+ *
+ * A question is included if its rubric is:
+ *   - missing entirely (a Rubric row is created for it first, PENDING by
+ *     default, exactly like createQuestion/approveExtraction already do —
+ *     this only covers a genuinely old Question row that predates a Rubric
+ *     row always being created alongside it);
+ *   - PENDING (never yet attempted); or
+ *   - FAILED (this is also what makes this function double as "retry failed
+ *     rubrics" — a second call after a partial failure naturally only
+ *     re-attempts the FAILED ones, since every READY question is excluded
+ *     and there are no longer any PENDING/missing ones left).
+ *
+ * READY and GENERATING are deliberately excluded up front — not just
+ * because generateRubricForQuestion's own atomic claim would no-op on them
+ * anyway (it would), but so an assessment with many already-READY questions
+ * doesn't pay for a wasted claim attempt and question lookup on every one of
+ * them each time this runs.
+ *
+ * Safe to call concurrently (double-click, or a stray retry racing this):
+ * each question's own PENDING/FAILED -> GENERATING claim inside
+ * generateRubricForQuestion is what actually serializes work per question,
+ * so two overlapping calls to this function simply end up claiming disjoint
+ * subsets of whatever was still unclaimed — never duplicate work.
+ */
+export async function generateAllRubricsForAssessment(assessmentId: string): Promise<void> {
+  const questions = await prisma.question.findMany({
+    where: { assessmentId },
+    select: { id: true, rubric: { select: { generationStatus: true } } },
+  });
+
+  const missingRubricQuestionIds = questions.filter((q) => !q.rubric).map((q) => q.id);
+  if (missingRubricQuestionIds.length > 0) {
+    await prisma.rubric.createMany({
+      data: missingRubricQuestionIds.map((questionId) => ({ questionId })),
+      skipDuplicates: true,
+    });
+  }
+
+  const questionIdsNeedingGeneration = questions
+    .filter((q) => !q.rubric || q.rubric.generationStatus === "PENDING" || q.rubric.generationStatus === "FAILED")
+    .map((q) => q.id);
+
+  await generateRubricsForQuestions(questionIdsNeedingGeneration);
+}

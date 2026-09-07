@@ -27,8 +27,12 @@ import { prisma } from "@/lib/prisma";
  *                generateRubricForQuestion's PENDING/FAILED -> GENERATING
  *                claim), so FAILED here always means "never successfully
  *                produced a usable version."
- *   PENDING    - a Rubric row exists but generation hasn't run yet (queued,
- *                or its background task never got a chance to fire).
+ *   PENDING    - a Rubric row exists but generation hasn't run yet. This is
+ *                the normal, potentially long-lived starting state (Phase
+ *                4.3: generation is teacher-triggered via "Generate All
+ *                Rubrics" — src/lib/rubricGeneration's
+ *                generateAllRubricsForAssessment — not automatic), not
+ *                something already "in flight."
  *   MISSING    - no Rubric row exists at all for this Question — only
  *                possible for a Question created before Phase 4.1 (every
  *                current creation path creates a companion Rubric row
@@ -184,11 +188,24 @@ export function describeAssessmentReadiness(readiness: AssessmentReadiness): Rea
     };
   }
 
-  if (readiness.generatingCount > 0 || readiness.pendingCount > 0) {
+  if (readiness.generatingCount > 0) {
     return {
       headline: "Analyzing…",
-      message: "Assessment Brain is still generating evaluation rubrics. This usually finishes within a minute — the page will update on its own.",
+      message: "Assessment Brain is generating evaluation rubrics. This usually finishes within a minute — the page will update on its own.",
       tone: "info",
+    };
+  }
+
+  // PENDING and no generation currently running: nothing is actually
+  // happening yet (Phase 4.3 — generation is teacher-triggered via
+  // "Generate All Rubrics", not automatic), so this must not say
+  // "generating" or "will update on its own" — nothing will change until
+  // the teacher acts.
+  if (readiness.pendingCount > 0) {
+    return {
+      headline: "Ready to analyze",
+      message: 'Click "Generate All Rubrics" to have Assessment Brain create evaluation rubrics for every question.',
+      tone: "neutral",
     };
   }
 
