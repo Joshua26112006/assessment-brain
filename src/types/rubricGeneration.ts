@@ -1,3 +1,5 @@
+import type { StructuredExpectation } from "@/types/mathCorrection";
+
 /**
  * Automatic AI rubric-generation contracts (Phase 4.1).
  *
@@ -36,6 +38,14 @@ export interface RubricDraft {
   solutionApproaches: RubricSolutionApproach[];
   markingCheckpoints: RubricMarkingCheckpoint[];
   partialCreditGuidance: string;
+  /**
+   * Machine-comparable view of the same rubric, generated alongside the prose
+   * above for Mathematics questions only (see
+   * src/lib/rubricGeneration/structuredExpectation.ts). Null for every other
+   * subject, and whenever the model returned nothing usable — the prose rubric
+   * is unaffected either way.
+   */
+  structuredExpectation: StructuredExpectation | null;
 }
 
 /** Raw, not-yet-validated shape of what the model actually returned. */
@@ -44,6 +54,7 @@ export interface RawRubricDraft {
   solutionApproaches?: unknown;
   markingCheckpoints?: unknown;
   partialCreditGuidance?: unknown;
+  structuredExpectation?: unknown;
 }
 
 /**

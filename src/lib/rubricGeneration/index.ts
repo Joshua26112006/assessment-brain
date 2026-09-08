@@ -123,6 +123,7 @@ export async function generateRubricForQuestion(questionId: string): Promise<voi
           markingCheckpoints: draft.markingCheckpoints as unknown as object,
           expectedAnswer: draft.expectedAnswer,
           partialCreditGuidance: draft.partialCreditGuidance,
+          structuredExpectation: (draft.structuredExpectation as unknown as object) ?? undefined,
         },
       });
 
