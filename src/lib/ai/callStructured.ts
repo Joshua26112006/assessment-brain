@@ -24,6 +24,7 @@ export async function callStructuredAi<T>(options: StructuredAiCallOptions): Pro
       const completion = await client.chat.completions.create({
         model: options.model,
         temperature: options.temperature ?? 0.2,
+        seed: options.seed,
         messages: [
           { role: "system", content: options.systemPrompt },
           { role: "user", content: options.userPrompt },
@@ -73,6 +74,7 @@ export async function callStructuredAiWithContent<T>(
       const completion = await client.chat.completions.create({
         model: options.model,
         temperature: options.temperature ?? 0.2,
+        seed: options.seed,
         messages: [
           { role: "system", content: options.systemPrompt },
           { role: "user", content: options.userContent },
