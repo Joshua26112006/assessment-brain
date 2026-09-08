@@ -335,19 +335,6 @@ function FeedbackDetails({ annotation }: { annotation: AnnotationResult }) {
         </div>
       )}
 
-      {aiAnnotation && aiAnnotation.improvements.length > 0 && (
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-warning">
-            Could be improved
-          </p>
-          <ul className="mt-1.5 flex list-disc flex-col gap-1 pl-5 text-sm text-muted">
-            {aiAnnotation.improvements.map((improvement, index) => (
-              <li key={index}>{improvement}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-
       {annotation.entries.length > 0 && (
         <details className="group">
           <summary className="cursor-pointer list-none text-xs font-semibold uppercase tracking-wide text-muted">
