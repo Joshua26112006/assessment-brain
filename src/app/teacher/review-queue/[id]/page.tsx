@@ -558,13 +558,6 @@ export default async function ReviewItemDetailPage({
                 </span>
               </summary>
               <p className="mt-3 text-sm">{annotation.aiAnnotation.summary}</p>
-              {annotation.aiAnnotation.improvements.length > 0 && (
-                <ul className="mt-2 flex list-disc flex-col gap-1 pl-5 text-sm text-muted">
-                  {annotation.aiAnnotation.improvements.map((improvement, index) => (
-                    <li key={index}>{improvement}</li>
-                  ))}
-                </ul>
-              )}
             </details>
           )}
 
