@@ -147,3 +147,22 @@ export async function deleteAnswerSheetPage(page: { id: string; storageKey: stri
 export async function readAnswerSheetPageContent(storageKey: string): Promise<Buffer | null> {
   return localFileStorage.read(storageKey);
 }
+
+/**
+ * Stores the marked-up copy of a page produced by the correction flow.
+ *
+ * Goes through this module rather than the storage driver directly, for the
+ * same reason everything else here does: this is the one place answer-sheet
+ * bytes are written, so swapping the driver stays a single-file change. An
+ * annotator reaching past it would keep writing to whichever driver it named,
+ * and the mismatch would be invisible — the row would point at a file the
+ * read path cannot find, so pages would simply never display.
+ */
+export async function writeAnnotatedAnswerSheetPage(storageKey: string, buffer: Buffer): Promise<void> {
+  await localFileStorage.write(storageKey, buffer);
+}
+
+/** Best-effort cleanup for an annotated copy no row points at. */
+export async function removeAnnotatedAnswerSheetPage(storageKey: string): Promise<void> {
+  await localFileStorage.remove(storageKey).catch(() => {});
+}

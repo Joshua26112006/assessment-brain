@@ -1,7 +1,10 @@
 import crypto from "node:crypto";
 import sharp from "sharp";
 import { prisma } from "@/lib/prisma";
-import { localFileStorage } from "@/lib/storage/localFileStorage";
+import {
+  removeAnnotatedAnswerSheetPage,
+  writeAnnotatedAnswerSheetPage,
+} from "@/lib/storage/answerSheets";
 import { analysePage, locateTextOnPage, type BBox, type QuestionMarker } from "@/lib/mathCorrection/annotation/textractPage";
 import { buildOverlaySvg, type QuestionMark } from "@/lib/mathCorrection/annotation/overlay";
 import type { ErrorExplanation } from "@/types/mathCorrection";
@@ -145,7 +148,7 @@ async function annotateOnePage(
   // a submission's originals and annotated copies live side by side.
   const annotatedKey = `${page.submissionId}/annotated-${page.pageNumber}-${crypto.randomBytes(8).toString("hex")}.jpg`;
 
-  await localFileStorage.write(annotatedKey, annotatedBuffer);
+  await writeAnnotatedAnswerSheetPage(annotatedKey, annotatedBuffer);
 
   try {
     await prisma.answerSheetPage.update({
@@ -155,7 +158,7 @@ async function annotateOnePage(
   } catch (error) {
     // The row could not be pointed at the new file, so nothing will ever read
     // it — remove it rather than leaving an orphan behind.
-    await localFileStorage.remove(annotatedKey).catch(() => {});
+    await removeAnnotatedAnswerSheetPage(annotatedKey);
     throw error;
   }
 
