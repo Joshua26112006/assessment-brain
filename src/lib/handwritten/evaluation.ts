@@ -2,6 +2,8 @@ import { prisma } from "@/lib/prisma";
 import { runPipelineForQuestionResponse } from "@/lib/assessment/pipeline";
 import { recalculateSubmissionStatus } from "@/lib/assessment/submissionStatusSync";
 import { createReviewItemIfNeeded } from "@/lib/assessment/pipelineReviewItems";
+import { isMathematicsSubject } from "@/lib/rubricGeneration/structuredExpectation";
+import { runMathCorrectionForSubmission } from "@/lib/mathCorrection/submission";
 import type { AnswerIndexEntry, AnswerSheetValidationResult, StructuredAnswerIndex } from "./types";
 
 /**
@@ -34,9 +36,10 @@ export async function evaluateHandwrittenSubmission(submissionId: string): Promi
 
   const submission = await prisma.submission.findUnique({
     where: { id: submissionId },
-    select: { id: true, assessmentId: true },
+    select: { id: true, assessmentId: true, assessment: { select: { subject: true } } },
   });
   if (!submission) return;
+  const assessmentSubject = submission.assessment.subject;
 
   const answerIndex = processing.answerIndex as unknown as StructuredAnswerIndex;
   const validationResult = processing.validationResult as unknown as AnswerSheetValidationResult | null;
@@ -129,6 +132,17 @@ export async function evaluateHandwrittenSubmission(submissionId: string): Promi
         },
       });
     }
+  }
+
+  // Mathematics takes a different route from here: its answers are working to
+  // be checked step by step against the rubric and marked up on the page the
+  // student wrote, which the checkpoint-based pipeline below has no notion of.
+  // Everything above — mapping, review signals, response creation — is shared,
+  // and every other subject continues exactly as before.
+  if (isMathematicsSubject(assessmentSubject)) {
+    await runMathCorrectionForSubmission(submissionId);
+    await recalculateSubmissionStatus(prisma, submissionId).catch(() => {});
+    return;
   }
 
   // One failed question's evaluation must never prevent or roll back

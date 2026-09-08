@@ -24,7 +24,7 @@ import type { ErrorExplanation } from "@/types/mathCorrection";
 export interface AnnotatablePage {
   pageId: string;
   pageNumber: number;
-  storageKey: string;
+  submissionId: string;
   buffer: Buffer;
 }
 
@@ -141,8 +141,9 @@ async function annotateOnePage(
     .jpeg({ quality: JPEG_QUALITY })
     .toBuffer();
 
-  const submissionSegment = page.storageKey.split("/")[0] ?? "unknown";
-  const annotatedKey = `${submissionSegment}/annotated-${page.pageNumber}-${crypto.randomBytes(8).toString("hex")}.jpg`;
+  // Same namespacing as the original upload (see storage/answerSheets.ts), so
+  // a submission's originals and annotated copies live side by side.
+  const annotatedKey = `${page.submissionId}/annotated-${page.pageNumber}-${crypto.randomBytes(8).toString("hex")}.jpg`;
 
   await localFileStorage.write(annotatedKey, annotatedBuffer);
 

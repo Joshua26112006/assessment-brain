@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { prisma } from "@/lib/prisma";
 import { requireStudentSession } from "@/lib/require-student";
 import { getOwnedSubmissionOrNotFound } from "@/lib/student-assessment-access";
 import { parseAnnotationResult, parseGradingResult } from "@/lib/pipeline/parseResults";
@@ -39,6 +40,15 @@ export default async function SubmissionResultPage({
   const responseByQuestionId = new Map(
     submission.questionResponses.map((r) => [r.questionId, r]),
   );
+
+  // Only pages that actually carry marks — a submission whose sheet was never
+  // annotated simply doesn't show this section, rather than showing the
+  // student their unmarked upload back under a "marked" heading.
+  const annotatedPages = await prisma.answerSheetPage.findMany({
+    where: { submissionId, annotatedStorageKey: { not: null } },
+    orderBy: { pageNumber: "asc" },
+    select: { id: true, pageNumber: true },
+  });
 
   // Score is derived by the shared summarizer, so the list page, this page
   // and the teacher's submissions view can never disagree about what a
@@ -117,6 +127,30 @@ export default async function SubmissionResultPage({
           </p>
         )}
       </Card>
+
+      {annotatedPages.length > 0 && (
+        <Section
+          className="mb-8"
+          title="Your marked answer sheet"
+          description="Your own pages, with the marks and any mistakes shown where they were made."
+        >
+          <div className="flex flex-col gap-4">
+            {annotatedPages.map((page) => (
+              <figure key={page.id} className="overflow-hidden rounded-xl border border-line bg-surface">
+                {/* eslint-disable-next-line @next/next/no-img-element -- served from an auth-scoped route, not a static/optimizable asset */}
+                <img
+                  src={`/api/student/submissions/${submissionId}/answer-sheets/${page.id}?annotated=1`}
+                  alt={`Page ${page.pageNumber} of your answer sheet, with your teacher's marks`}
+                  className="w-full"
+                />
+                <figcaption className="border-t border-line px-4 py-2 text-xs text-subtle">
+                  Page {page.pageNumber}
+                </figcaption>
+              </figure>
+            ))}
+          </div>
+        </Section>
+      )}
 
       <Section title="Your answers">
         <div className="flex flex-col gap-4">

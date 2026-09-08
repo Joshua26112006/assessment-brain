@@ -151,6 +151,20 @@ export default async function ReviewItemDetailPage({
     ? await countOtherOpenReviewItems(prisma, response.id, item.id)
     : 0;
 
+  // Queried here rather than widened into review-access.ts's select, which
+  // deliberately exposes no storage keys — only which pages have a marked-up
+  // copy is needed, never where it lives.
+  const annotatedPageIds = new Set(
+    item.submission
+      ? (
+          await prisma.answerSheetPage.findMany({
+            where: { submissionId: item.submission.id, annotatedStorageKey: { not: null } },
+            select: { id: true },
+          })
+        ).map((page) => page.id)
+      : [],
+  );
+
   // Novel-approach candidates are a real, separately-reviewable record the
   // pipeline creates; show them when they exist and never invent one when
   // they don't. Scoped by the response id already proven to belong to this
@@ -271,7 +285,7 @@ export default async function ReviewItemDetailPage({
             >
               <ul className="flex flex-wrap gap-2">
                 {item.submission.answerSheetPages.map((page) => (
-                  <li key={page.id}>
+                  <li key={page.id} className="flex gap-2">
                     <a
                       href={`/api/teacher/submissions/${item.submission!.id}/answer-sheets/${page.id}`}
                       target="_blank"
@@ -280,6 +294,16 @@ export default async function ReviewItemDetailPage({
                     >
                       View page {page.pageNumber}
                     </a>
+                    {annotatedPageIds.has(page.id) && (
+                      <a
+                        href={`/api/teacher/submissions/${item.submission!.id}/answer-sheets/${page.id}?annotated=1`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={buttonClass("secondary", "sm")}
+                      >
+                        Marked
+                      </a>
+                    )}
                   </li>
                 ))}
               </ul>
