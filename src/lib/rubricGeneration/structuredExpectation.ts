@@ -10,7 +10,13 @@ import {
 } from "@/types/mathCorrection";
 
 /**
- * The machine-comparable half of rubric generation (Mathematics only).
+ * The machine-comparable half of rubric generation.
+ *
+ * Produced for every subject, not a chosen list of them: the question itself
+ * decides whether it has one definite checkable answer, and it reports
+ * solvable: false when it does not. Selecting subjects by name was tried and
+ * failed — a Statistics paper is mathematics, and no subject-name test
+ * recognised it, so those papers silently never got a checkable rubric.
  *
  * Kept out of ai.ts deliberately: the prose rubric a teacher reads is the
  * primary product and its generation/validation is unchanged by this file.
@@ -27,24 +33,14 @@ const MAX_VALUE_LENGTH = 200;
 const MAX_VARIABLES_PER_APPROACH = 40;
 
 /**
- * Tolerant on purpose: the subject is free text a teacher typed, so "Maths",
- * "Mathematics" and "MATHEMATICS" must all qualify. Matching a substring
- * rather than an exact string also covers "Mathematics (Standard)", which
- * CBSE papers are routinely labelled with.
- */
-export function isMathematicsSubject(subject: string): boolean {
-  return /math/i.test(subject);
-}
-
-/**
- * Appended to the rubric-generation system prompt only for Mathematics. The
+ * Appended to the rubric-generation system prompt for every question. The
  * numbering continues from the existing prompt's rules so the model reads one
  * coherent list rather than two competing instruction blocks.
  */
 export function buildStructuredExpectationInstructions(): string {
   return [
     "",
-    "ADDITIONALLY, because this is a Mathematics question, include one more top-level field, \"structuredExpectation\", so a program can later compare a student's written working against this rubric numerically:",
+    "ADDITIONALLY, include one more top-level field, \"structuredExpectation\", so a program can later compare a student's written working against this rubric numerically:",
     '"structuredExpectation": {"solvable": boolean, "unsolvableReason": string, "problemType": string, "correctAnswer": string, "approaches": [{"label": string, "formulaName": string, "formulaExpression": string, "variables": {"<name>": "<value>"}}]}',
     "",
     "7. solvable: true ONLY if this question reduces to one definite, checkable final value (e.g. \"find the mode\", \"calculate the probability\"). Set it to false for a proof, a construction, an explanation, or any question with more than one legitimately different final answer — that is a normal and expected outcome, not a failure.",

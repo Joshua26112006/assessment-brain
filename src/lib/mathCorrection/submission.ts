@@ -56,7 +56,11 @@ function buildGradingResult(correction: MathQuestionCorrection, maximumMarks: nu
     ...stageBase("GRADING" as const),
     awardedMarks,
     maximumMarks,
-    outcome: correction.mistakesWithheld || !correction.score ? "NEEDS_REVIEW" : "FINAL",
+    // A mark that was produced is final. Uncertainty about WHERE a student went
+    // wrong is not a reason to withhold their result from them and queue it for
+    // a teacher — unconfirmed findings are simply not shown. Only a mark that
+    // could not be produced at all is left for a human.
+    outcome: correction.score ? "FINAL" : "NEEDS_REVIEW",
     // The mark comes from an AI examiner reading the rubric, and any findings
     // shown alongside it were independently verified. "DETERMINISTIC" would be
     // plainly untrue here — no deterministic marking took place — so of the
@@ -77,7 +81,7 @@ function buildAnnotationResult(correction: MathQuestionCorrection): AnnotationRe
   return {
     ...stageBase("ANNOTATION" as const),
     entries: [],
-    needsHumanReview: correction.mistakesWithheld || !correction.score,
+    needsHumanReview: !correction.score,
     aiAnnotation: {
       ...stageBase("ANNOTATION_AI" as const),
       summary: correction.score?.feedback ?? "",
@@ -158,7 +162,7 @@ async function persistCorrection(
   assessmentId: string,
   submissionId: string,
 ): Promise<void> {
-  const status = !correction.score ? "FAILED" : correction.mistakesWithheld ? "NEEDS_REVIEW" : "GRADED";
+  const status = correction.score ? "GRADED" : "FAILED";
 
   await prisma.questionResponse.update({
     where: { id: context.responseId },
@@ -173,6 +177,12 @@ async function persistCorrection(
     },
   });
 
+  // The ONLY thing escalated to a teacher: marking could not be completed at
+  // all, even after retries, so there is no mark to show. Everything else the
+  // AI settles on its own — an unconfirmed finding is dropped rather than
+  // queued, because a student whose paper was read and marked should get their
+  // result, not wait behind a teacher's queue for a doubt about which line of
+  // their working was wrong.
   if (!correction.score) {
     await createReviewItemIfNeeded({
       reason: "UNDETERMINED_GRADING",
@@ -182,24 +192,32 @@ async function persistCorrection(
       questionResponseId: context.responseId,
       context: { detail: "Marking could not be completed for this question." },
     });
-    return;
   }
+}
 
-  if (correction.mistakesWithheld) {
-    await createReviewItemIfNeeded({
-      reason: "VERIFICATION_FAILURE",
-      assessmentId,
-      questionId: context.questionId,
-      submissionId,
-      questionResponseId: context.responseId,
-      context: {
-        detail: "Mistakes were found but could not be independently confirmed, so none were shown to the student.",
-        comparisonStatus: correction.comparison.status,
-        errorCount: correction.comparison.errors.length,
-        verificationStatus: correction.verification?.status ?? null,
-      },
-    });
-  }
+/**
+ * Whether this assessment's rubrics can actually be checked question by
+ * question — i.e. at least one has a structured expectation the rubric itself
+ * judged solvable.
+ *
+ * Routing is decided by the rubric rather than by the assessment's subject
+ * text. Matching subject names failed in practice: "Statistics" is a
+ * mathematics paper, but no reasonable subject-name test recognised it, so
+ * every such submission silently fell back to keyword matching. The rubric
+ * already knows whether a question has one definite checkable answer.
+ */
+export async function hasCheckableRubric(assessmentId: string): Promise<boolean> {
+  const questions = await prisma.question.findMany({
+    where: { assessmentId },
+    select: { rubric: { select: { activeVersion: { select: { structuredExpectation: true } } } } },
+  });
+
+  return questions.some((question) => {
+    const expectation = question.rubric?.activeVersion?.structuredExpectation as unknown as
+      | StructuredExpectation
+      | null;
+    return expectation?.solvable === true;
+  });
 }
 
 export async function runMathCorrectionForSubmission(submissionId: string): Promise<void> {

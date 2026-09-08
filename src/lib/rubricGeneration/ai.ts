@@ -2,7 +2,6 @@ import { JUDGE_MODEL } from "@/lib/ai/models";
 import { callStructuredAi } from "@/lib/ai/callStructured";
 import {
   buildStructuredExpectationInstructions,
-  isMathematicsSubject,
   parseStructuredExpectation,
 } from "./structuredExpectation";
 import type {
@@ -56,15 +55,14 @@ const SYSTEM_PROMPT = [
  * returns checkpoint marks that don't sum to `maximumMarks`.
  */
 export async function generateRubricWithAi(input: RubricGenerationInput): Promise<RubricDraft> {
-  // Mathematics questions additionally produce a machine-comparable
-  // expectation in the SAME call: asking for it separately would mean a second
-  // model deriving values for a rubric it didn't write, which is exactly the
-  // kind of drift between the prose rubric and the checkable one that the
-  // comparison stage would then surface as phantom student errors.
-  const wantsStructuredExpectation = isMathematicsSubject(input.subject);
-  const systemPrompt = wantsStructuredExpectation
-    ? `${SYSTEM_PROMPT}\n${buildStructuredExpectationInstructions()}`
-    : SYSTEM_PROMPT;
+  // Every question also produces a machine-comparable expectation, in the SAME
+  // call. Two reasons it isn't gated on the subject: asking for it separately
+  // would mean a second model deriving values for a rubric it didn't write,
+  // and gating on a subject STRING silently failed in practice — a Statistics
+  // paper is mathematics, but no subject-name test recognised it as such. The
+  // rubric is the reliable judge of whether a question has one definite
+  // checkable answer, so it decides; an essay simply reports solvable: false.
+  const systemPrompt = `${SYSTEM_PROMPT}\n${buildStructuredExpectationInstructions()}`;
 
   const userPrompt = [
     `Subject: ${input.subject}`,
@@ -89,9 +87,7 @@ export async function generateRubricWithAi(input: RubricGenerationInput): Promis
 
   return {
     ...draft,
-    structuredExpectation: wantsStructuredExpectation
-      ? parseStructuredExpectation(raw.structuredExpectation)
-      : null,
+    structuredExpectation: parseStructuredExpectation(raw.structuredExpectation),
   };
 }
 

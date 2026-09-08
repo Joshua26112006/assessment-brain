@@ -108,6 +108,11 @@ export async function scoreQuestion(input: ScoringInput): Promise<QuestionScore>
     userPrompt,
     temperature: 0,
     seed: SCORING_SEED,
+    // More attempts than other stages get. Every other stage degrades into
+    // something still useful when it fails, but a failed marking call leaves a
+    // student with no mark for work they did — worth retrying harder before
+    // giving up and asking a teacher to step in.
+    maxAttempts: 3,
     stage: "MATH_SCORING",
   });
 
