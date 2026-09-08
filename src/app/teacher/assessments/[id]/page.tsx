@@ -3,6 +3,7 @@ import { requireTeacherSession } from "@/lib/require-teacher";
 import { getOwnedAssessmentOrNotFound } from "@/lib/assessment-ownership";
 import { computeAssessmentReadiness, describeAssessmentReadiness } from "@/lib/assessment/readiness";
 import { PageHeader, Section, Card, EmptyState } from "@/components/ui/Page";
+import { ensureClassJoinCode } from "@/lib/classJoinCode";
 import StatusBadge, { assessmentBadge } from "@/components/ui/StatusBadge";
 import { buttonClass } from "@/components/ui/styles";
 import AddQuestionForm from "./AddQuestionForm";
@@ -77,6 +78,13 @@ export default async function AssessmentDetailPage({
   );
   const readinessExplanation = describeAssessmentReadiness(readiness);
 
+  // Only once the assessment is live, since that is the point at which a
+  // teacher actually needs to hand the code out. Generated on first use, so a
+  // class created before self-enrolment existed gets one here rather than
+  // needing a backfill.
+  const joinCode =
+    assessment.status === "PUBLISHED" ? await ensureClassJoinCode(assessment.classId) : null;
+
   return (
     <div>
       {/* Only polls while generation is actually in flight — a merely
@@ -145,6 +153,19 @@ export default async function AssessmentDetailPage({
               View Complete Assessment Rubric
             </Link>
           </div>
+
+          {joinCode && (
+            <div className="mt-4 border-t border-line pt-4">
+              <p className="text-sm font-medium">Class code for {assessment.class.name}</p>
+              <p className="mt-1 text-sm text-muted">
+                A student only sees this assessment once they&apos;ve joined the class. Give them this
+                code — they enter it once under Assessments.
+              </p>
+              <p className="mt-2 font-mono text-2xl font-semibold tracking-[0.3em] text-foreground">
+                {joinCode}
+              </p>
+            </div>
+          )}
         </Card>
       )}
 

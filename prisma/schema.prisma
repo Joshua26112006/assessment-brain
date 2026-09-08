@@ -63,6 +63,15 @@ model Class {
   section   String?
   teacherId String
   teacher   User     @relation("ClassTeacher", fields: [teacherId], references: [id], onDelete: Restrict)
+
+  /// Short code a student types once to enrol themselves in this class (see
+  /// src/lib/classJoinCode.ts). Unique so a code identifies exactly one class.
+  ///
+  /// Nullable because classes created before self-enrolment existed have none;
+  /// one is generated on demand the first time a teacher looks at the class,
+  /// so no backfill is needed and an old class is never left unjoinable.
+  joinCode String? @unique
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

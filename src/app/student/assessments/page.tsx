@@ -3,6 +3,7 @@ import { requireStudentSession } from "@/lib/require-student";
 import { getAvailableAssessmentsForStudent } from "@/lib/student-assessment-access";
 import { PageHeader, EmptyState, Section } from "@/components/ui/Page";
 import StatusBadge, { submissionBadge } from "@/components/ui/StatusBadge";
+import JoinClassForm from "./JoinClassForm";
 
 export const metadata = { title: "Assessments" };
 
@@ -27,8 +28,9 @@ export default async function StudentAssessmentsPage() {
 
       {assessments.length === 0 ? (
         <EmptyState
-          title="Nothing to do right now"
-          description="No assessments are available yet. Check back once your teacher publishes one."
+          title="You're not in a class yet"
+          description="Assessments are set for a class. Enter the code your teacher gave you to join, then anything they publish will show up here."
+          action={<JoinClassForm prominent />}
         />
       ) : (
         <div className="flex flex-col gap-8">
@@ -47,6 +49,10 @@ export default async function StudentAssessmentsPage() {
               <AssessmentList assessments={done} cta="View result" />
             </Section>
           )}
+
+          <Section title="Join another class" description="Already in one class? You can join more.">
+            <JoinClassForm />
+          </Section>
         </div>
       )}
     </div>
