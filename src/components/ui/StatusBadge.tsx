@@ -138,9 +138,34 @@ export function rubricGenerationBadge(status: string): BadgeDescriptor {
       return { label: "Generating rubric…", tone: "info" };
     case "FAILED":
       return { label: "Rubric generation failed", tone: "danger" };
+    case "REVIEW_REQUIRED":
+      return { label: "Teacher review required", tone: "danger" };
     case "PENDING":
     default:
       return { label: "Rubric queued", tone: "neutral" };
+  }
+}
+
+/**
+ * Rubric.validationIssueType (Phase 4.4) — the specific reason a question
+ * was flagged, worded for a teacher deciding what to fix.
+ */
+export function questionValidationIssueLabel(issueType: string): string {
+  switch (issueType) {
+    case "MISSING_INFORMATION":
+      return "Missing information";
+    case "AMBIGUOUS_QUESTION":
+      return "Ambiguous question";
+    case "CONTRADICTORY_INFORMATION":
+      return "Contradictory information";
+    case "INVALID_DATA":
+      return "Invalid data";
+    case "MISSING_REFERENCE":
+      return "Missing reference";
+    case "INCOMPLETE_QUESTION":
+      return "Incomplete question";
+    default:
+      return "Needs review";
   }
 }
 

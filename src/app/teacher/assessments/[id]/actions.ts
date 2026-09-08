@@ -125,7 +125,30 @@ export async function updateQuestion(
     throw error;
   }
 
+  // Phase 4.4 — an edit is the primary recovery path for a flagged
+  // (REVIEW_REQUIRED) or technically-failed (FAILED) rubric: clear the
+  // stale status and issue details and let the question re-enter the
+  // normal PENDING queue, so the next "Generate All Rubrics" actually
+  // revalidates it against the edited text rather than leaving the old
+  // verdict visible forever. A READY rubric is deliberately left untouched
+  // — a minor text/marks tweak after a successful generation shouldn't
+  // silently invalidate a working rubric; regenerating one that's already
+  // READY stays a manual, explicit choice (the "Advanced: edit rubric
+  // manually" override). Never marks the question valid on its own — it
+  // only clears the way for a fresh validation pass to actually run.
+  await prisma.rubric.updateMany({
+    where: { questionId, generationStatus: { in: ["FAILED", "REVIEW_REQUIRED"] } },
+    data: {
+      generationStatus: "PENDING",
+      generationError: null,
+      validationIssueType: null,
+      validationIssueSummary: null,
+      validationExplanation: null,
+    },
+  });
+
   revalidatePath(`/teacher/assessments/${question.assessmentId}`);
+  revalidatePath(`/teacher/assessments/${question.assessmentId}/rubrics`);
   return { success: true };
 }
 
@@ -160,6 +183,86 @@ export async function deleteQuestion(
   }
 
   revalidatePath(`/teacher/assessments/${question.assessmentId}`);
+  return { success: true };
+}
+
+/**
+ * Deletes every Question on an assessment in one action — the bulk
+ * counterpart to deleteQuestion, for a teacher who wants to clear an
+ * extracted/approved batch and start over rather than deleting each one by
+ * hand. Rubric/RubricVersion rows are removed automatically (Rubric.question
+ * is onDelete: Cascade); nothing else needs cleaning up.
+ *
+ * A single `deleteMany` is tried first (the common case, and the fast
+ * path). If any question already has recorded student responses,
+ * QuestionResponse.question's onDelete: Restrict makes that single SQL
+ * statement fail atomically — deleting nothing at all, even the questions
+ * that were perfectly safe to remove. Falling back to one-at-a-time on that
+ * specific failure means a teacher clearing a fresh, never-submitted-to
+ * batch (the normal case this button exists for) still gets one clean bulk
+ * delete, while a mixed assessment safely keeps whatever has real history
+ * and reports how many were skipped, rather than either silently losing
+ * data or failing the whole operation over one protected question.
+ */
+export async function deleteAllQuestions(
+  assessmentId: string,
+  _prevState: ActionState,
+): Promise<ActionState> {
+  const session = await requireTeacherSession();
+
+  const owned = await getOwnedAssessment(assessmentId, session.user.id);
+  if (!owned) {
+    return { error: "Assessment not found." };
+  }
+
+  const questions = await prisma.question.findMany({
+    where: { assessmentId },
+    select: { id: true },
+  });
+  if (questions.length === 0) {
+    return { success: true };
+  }
+
+  try {
+    await prisma.question.deleteMany({ where: { assessmentId } });
+  } catch (error) {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      (error.code === "P2003" || error.code === "P2014")
+    ) {
+      let deletedCount = 0;
+      let skippedCount = 0;
+      for (const q of questions) {
+        try {
+          await prisma.question.delete({ where: { id: q.id } });
+          deletedCount += 1;
+        } catch (innerError) {
+          if (
+            innerError instanceof Prisma.PrismaClientKnownRequestError &&
+            (innerError.code === "P2003" || innerError.code === "P2014")
+          ) {
+            skippedCount += 1;
+            continue;
+          }
+          throw innerError;
+        }
+      }
+
+      revalidatePath(`/teacher/assessments/${assessmentId}`);
+      revalidatePath(`/teacher/assessments/${assessmentId}/rubrics`);
+
+      if (skippedCount > 0) {
+        return {
+          error: `Deleted ${deletedCount} question${deletedCount === 1 ? "" : "s"}. ${skippedCount} couldn't be deleted because student responses already exist for ${skippedCount === 1 ? "it" : "them"}.`,
+        };
+      }
+      return { success: true };
+    }
+    throw error;
+  }
+
+  revalidatePath(`/teacher/assessments/${assessmentId}`);
+  revalidatePath(`/teacher/assessments/${assessmentId}/rubrics`);
   return { success: true };
 }
 

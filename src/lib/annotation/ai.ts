@@ -58,6 +58,7 @@ export async function annotateWithAi(params: {
     model: JUDGE_MODEL,
     systemPrompt,
     userPrompt,
+    stage: "ANNOTATION_AI",
   });
 
   return validate(raw, validIndices);

@@ -36,6 +36,7 @@ export async function readAnswerWithAi(params: {
     model: READ_MODEL,
     systemPrompt,
     userPrompt,
+    stage: "ANSWER_READING_AI",
   });
 
   return validate(raw);

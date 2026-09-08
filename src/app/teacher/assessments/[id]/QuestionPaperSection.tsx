@@ -51,7 +51,21 @@ export default async function QuestionPaperSection({
     return null;
   }
 
-  if (!current) {
+  // No live Questions right now. Either nothing has ever been uploaded, a
+  // non-terminal draft is mid-review, or — the edge case this branch exists
+  // for — a previously APPROVED paper's Questions were all individually
+  // deleted afterward (each Question's own Delete button), leaving hasQuestions
+  // false while `current` still points at that terminal, never-removable
+  // APPROVED row. QuestionPaperReview has no upload path and DELETE
+  // deliberately refuses to remove an APPROVED paper (it may still be
+  // referenced by grading history), so falling through to it here would be a
+  // dead end. The upload endpoint itself only blocks a new upload while a
+  // *draft* exists (see isDraftExtractionStatus — APPROVED isn't one), so a
+  // fresh upload is already safe and allowed. The stale APPROVED row is left
+  // alone in the database (harmless, inert history) but never referenced by
+  // this UI again once a new QuestionPaper is uploaded — findCurrentQuestionPaperForTeacher
+  // always resolves to the most recently created row.
+  if (!current || current.extractionStatus === "APPROVED") {
     return <QuestionPaperUpload assessmentId={assessmentId} />;
   }
 

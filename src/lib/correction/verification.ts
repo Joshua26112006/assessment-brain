@@ -76,6 +76,7 @@ export async function verifyDisagreements(params: {
     model: VERIFY_MODEL,
     systemPrompt,
     userPrompt,
+    stage: "AI_VERIFICATION",
   });
 
   return validate(raw, validIndices);

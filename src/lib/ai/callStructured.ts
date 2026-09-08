@@ -1,6 +1,7 @@
 import { getOpenRouterClient } from "@/lib/ai/openrouter";
 import { parseAiJson } from "@/lib/ai/json";
 import { withRetry } from "@/lib/ai/retry";
+import { recordAiCallUsage } from "@/lib/ai/usageLog";
 import type { StructuredAiCallOptions, StructuredAiCallWithContentOptions } from "@/lib/ai/types";
 
 /**
@@ -18,7 +19,7 @@ import type { StructuredAiCallOptions, StructuredAiCallWithContentOptions } from
 export async function callStructuredAi<T>(options: StructuredAiCallOptions): Promise<T> {
   const client = getOpenRouterClient();
 
-  const content = await withRetry(
+  const { text, usage } = await withRetry(
     async () => {
       const completion = await client.chat.completions.create({
         model: options.model,
@@ -33,12 +34,20 @@ export async function callStructuredAi<T>(options: StructuredAiCallOptions): Pro
       if (!text || typeof text !== "string") {
         throw new Error("AI response contained no text content.");
       }
-      return text;
+      return { text, usage: completion.usage };
     },
     { maxAttempts: options.maxAttempts ?? 2 },
   );
 
-  return parseAiJson<T>(content);
+  await recordAiCallUsage({
+    model: options.model,
+    stage: options.stage,
+    promptTokens: usage?.prompt_tokens,
+    completionTokens: usage?.completion_tokens,
+    context: options.context,
+  });
+
+  return parseAiJson<T>(text);
 }
 
 /**
@@ -59,7 +68,7 @@ export async function callStructuredAiWithContent<T>(
 ): Promise<T> {
   const client = getOpenRouterClient();
 
-  const content = await withRetry(
+  const { text, usage } = await withRetry(
     async () => {
       const completion = await client.chat.completions.create({
         model: options.model,
@@ -74,10 +83,18 @@ export async function callStructuredAiWithContent<T>(
       if (!text || typeof text !== "string") {
         throw new Error("AI response contained no text content.");
       }
-      return text;
+      return { text, usage: completion.usage };
     },
     { maxAttempts: options.maxAttempts ?? 2 },
   );
 
-  return parseAiJson<T>(content);
+  await recordAiCallUsage({
+    model: options.model,
+    stage: options.stage,
+    promptTokens: usage?.prompt_tokens,
+    completionTokens: usage?.completion_tokens,
+    context: options.context,
+  });
+
+  return parseAiJson<T>(text);
 }

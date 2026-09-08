@@ -45,3 +45,36 @@ export interface RawRubricDraft {
   markingCheckpoints?: unknown;
   partialCreditGuidance?: unknown;
 }
+
+/**
+ * Phase 4.4 — pre-generation question-validation contracts. Deliberately
+ * checked BEFORE any of the above rubric-content types are ever produced:
+ * generateRubricWithAi only ever runs for a question this validator has
+ * already judged VALID (see src/lib/rubricGeneration/index.ts), so nothing
+ * here reuses or extends RubricDraft — a validation result never contains
+ * rubric content, only a verdict.
+ */
+export type QuestionValidationIssueType =
+  | "MISSING_INFORMATION"
+  | "AMBIGUOUS_QUESTION"
+  | "CONTRADICTORY_INFORMATION"
+  | "INVALID_DATA"
+  | "MISSING_REFERENCE"
+  | "INCOMPLETE_QUESTION";
+
+export type QuestionValidationResult =
+  | { status: "VALID" }
+  | {
+      status: "REVIEW_REQUIRED";
+      issueType: QuestionValidationIssueType;
+      issueSummary: string;
+      explanation: string;
+    };
+
+/** Raw, not-yet-validated shape of what the model actually returned. */
+export interface RawQuestionValidationResult {
+  status?: unknown;
+  issueType?: unknown;
+  issueSummary?: unknown;
+  explanation?: unknown;
+}

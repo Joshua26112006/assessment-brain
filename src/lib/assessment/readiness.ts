@@ -38,8 +38,23 @@ import { prisma } from "@/lib/prisma";
  *                current creation path creates a companion Rubric row
  *                eagerly). Never counted as ready: there is no evaluation
  *                data to fall back on.
+ *   REVIEW_REQUIRED - (Phase 4.4) the pre-generation validation check found
+ *                the question itself isn't reliably assessable as written
+ *                (missing information, real ambiguity, contradictions,
+ *                invalid data, a broken reference, or an incomplete
+ *                sub-part). No rubric was generated — see
+ *                Rubric.validationIssueType/validationIssueSummary/
+ *                validationExplanation for the persisted detail. Blocks
+ *                readiness exactly like FAILED, but is never cleared by a
+ *                retry — only by the teacher editing the question.
  */
-export type RubricReadinessBucket = "READY" | "GENERATING" | "PENDING" | "FAILED" | "MISSING";
+export type RubricReadinessBucket =
+  | "READY"
+  | "GENERATING"
+  | "PENDING"
+  | "FAILED"
+  | "REVIEW_REQUIRED"
+  | "MISSING";
 
 export interface QuestionReadiness {
   questionId: string;
@@ -47,6 +62,9 @@ export interface QuestionReadiness {
   maximumMarks: number;
   bucket: RubricReadinessBucket;
   generationError: string | null;
+  /** Present only when bucket is REVIEW_REQUIRED. */
+  validationIssueType: string | null;
+  validationIssueSummary: string | null;
 }
 
 export interface AssessmentReadiness {
@@ -56,6 +74,7 @@ export interface AssessmentReadiness {
   generatingCount: number;
   pendingCount: number;
   failedCount: number;
+  reviewRequiredCount: number;
   missingCount: number;
   /** True only when there's at least one question and every single one is READY. */
   isReady: boolean;
@@ -71,6 +90,8 @@ export interface QuestionForReadiness {
     generationStatus: string;
     activeVersionId: string | null;
     generationError: string | null;
+    validationIssueType?: string | null;
+    validationIssueSummary?: string | null;
   } | null;
 }
 
@@ -79,6 +100,7 @@ function bucketFor(rubric: QuestionForReadiness["rubric"]): RubricReadinessBucke
   if (rubric.generationStatus === "READY" && rubric.activeVersionId) return "READY";
   if (rubric.generationStatus === "GENERATING") return "GENERATING";
   if (rubric.generationStatus === "FAILED") return "FAILED";
+  if (rubric.generationStatus === "REVIEW_REQUIRED") return "REVIEW_REQUIRED";
   // Covers the honest PENDING case, and defensively covers the
   // never-expected-in-practice READY-without-activeVersionId inconsistency
   // (generateRubricForQuestion and saveRubricVersion always set both
@@ -99,6 +121,8 @@ export function computeAssessmentReadiness(questionsInput: QuestionForReadiness[
     maximumMarks: Number(q.maximumMarks),
     bucket: bucketFor(q.rubric),
     generationError: q.rubric?.generationError ?? null,
+    validationIssueType: q.rubric?.validationIssueType ?? null,
+    validationIssueSummary: q.rubric?.validationIssueSummary ?? null,
   }));
 
   const totalQuestions = questions.length;
@@ -107,6 +131,7 @@ export function computeAssessmentReadiness(questionsInput: QuestionForReadiness[
   const generatingCount = questions.filter((q) => q.bucket === "GENERATING").length;
   const pendingCount = questions.filter((q) => q.bucket === "PENDING").length;
   const failedCount = questions.filter((q) => q.bucket === "FAILED").length;
+  const reviewRequiredCount = questions.filter((q) => q.bucket === "REVIEW_REQUIRED").length;
   const missingCount = questions.filter((q) => q.bucket === "MISSING").length;
 
   return {
@@ -116,7 +141,11 @@ export function computeAssessmentReadiness(questionsInput: QuestionForReadiness[
     generatingCount,
     pendingCount,
     failedCount,
+    reviewRequiredCount,
     missingCount,
+    // A REVIEW_REQUIRED question is never READY, so it already can't
+    // satisfy readyCount === totalQuestions — this formula needs no
+    // separate reviewRequiredCount check to correctly block readiness.
     isReady: totalQuestions > 0 && readyCount === totalQuestions,
     questions,
   };
@@ -138,7 +167,15 @@ export async function getAssessmentReadiness(assessmentId: string): Promise<Asse
       id: true,
       questionNumber: true,
       maximumMarks: true,
-      rubric: { select: { generationStatus: true, activeVersionId: true, generationError: true } },
+      rubric: {
+        select: {
+          generationStatus: true,
+          activeVersionId: true,
+          generationError: true,
+          validationIssueType: true,
+          validationIssueSummary: true,
+        },
+      },
     },
   });
 
@@ -184,6 +221,18 @@ export function describeAssessmentReadiness(readiness: AssessmentReadiness): Rea
     return {
       headline: "Action required",
       message: `Rubric generation failed for question${readiness.failedCount === 1 ? "" : "s"} ${numbers} — retry it below before publishing.`,
+      tone: "danger",
+    };
+  }
+
+  if (readiness.reviewRequiredCount > 0) {
+    const numbers = readiness.questions
+      .filter((q) => q.bucket === "REVIEW_REQUIRED")
+      .map((q) => q.questionNumber)
+      .join(", ");
+    return {
+      headline: "Action required",
+      message: `Question${readiness.reviewRequiredCount === 1 ? "" : "s"} ${numbers} need${readiness.reviewRequiredCount === 1 ? "s" : ""} your review — Assessment Brain found a problem it can't safely resolve on its own. Edit the question, then generate its rubric again.`,
       tone: "danger",
     };
   }

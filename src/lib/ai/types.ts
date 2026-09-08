@@ -16,6 +16,10 @@ export interface StructuredAiCallOptions {
   /** Lower favors consistency, which matters for an evaluation pipeline. Default 0.2. */
   temperature?: number;
   maxAttempts?: number;
+  /** The caller's own context label (e.g. "RUBRIC_GENERATION") — attributes AiCallLog rows back to a stage. */
+  stage: string;
+  /** Caller-supplied identifiers (questionId, submissionId, ...) for the AiCallLog row. Shape varies by stage. */
+  context?: Record<string, unknown>;
 }
 
 /**
@@ -29,6 +33,10 @@ export interface StructuredAiCallWithContentOptions {
   userContent: ChatCompletionContentPart[];
   temperature?: number;
   maxAttempts?: number;
+  /** The caller's own context label (e.g. "QUESTION_PAPER_EXTRACTION") — attributes AiCallLog rows back to a stage. */
+  stage: string;
+  /** Caller-supplied identifiers (questionId, submissionId, ...) for the AiCallLog row. Shape varies by stage. */
+  context?: Record<string, unknown>;
 }
 
 /** Metadata about how a structured AI call went, for observability/warnings. */

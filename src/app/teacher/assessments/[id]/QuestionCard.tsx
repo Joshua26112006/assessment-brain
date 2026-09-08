@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import StatusBadge, { rubricGenerationBadge } from "@/components/ui/StatusBadge";
+import StatusBadge, { rubricGenerationBadge, questionValidationIssueLabel } from "@/components/ui/StatusBadge";
 import { buttonClass } from "@/components/ui/styles";
 import EditQuestionForm from "./EditQuestionForm";
 import DeleteQuestionButton from "./DeleteQuestionButton";
@@ -16,8 +16,11 @@ export type QuestionCardData = {
   maximumMarks: number;
   rubric: {
     id: string;
-    generationStatus: "PENDING" | "GENERATING" | "READY" | "FAILED";
+    generationStatus: "PENDING" | "GENERATING" | "READY" | "FAILED" | "REVIEW_REQUIRED";
     generationError: string | null;
+    validationIssueType: string | null;
+    validationIssueSummary: string | null;
+    validationExplanation: string | null;
     activeVersion: {
       id: string;
       versionNumber: number;
@@ -54,7 +57,10 @@ export default function QuestionCard({ question }: { question: QuestionCardData 
   const readyBadge = rubricGenerationBadge(generationStatus);
 
   return (
-    <article className="rounded-xl border border-line bg-surface">
+    <article
+      id={`question-${question.questionNumber}`}
+      className="scroll-mt-24 rounded-xl border border-line bg-surface"
+    >
       <div className="flex items-start justify-between gap-4 p-5">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
@@ -148,6 +154,26 @@ export default function QuestionCard({ question }: { question: QuestionCardData 
               </>
             )}
           </>
+        ) : generationStatus === "REVIEW_REQUIRED" ? (
+          <div className="rounded-lg border border-danger-line bg-danger-soft p-3.5">
+            <StatusBadge label={readyBadge.label} tone={readyBadge.tone} size="sm" />
+            <p className="mt-2 text-xs font-semibold text-danger">
+              Issue:{" "}
+              {rubric?.validationIssueType
+                ? questionValidationIssueLabel(rubric.validationIssueType)
+                : rubric?.validationIssueSummary}
+            </p>
+            {rubric?.validationIssueSummary && (
+              <p className="mt-0.5 text-xs text-danger">{rubric.validationIssueSummary}</p>
+            )}
+            {rubric?.validationExplanation && (
+              <p className="mt-1.5 text-xs text-muted">{rubric.validationExplanation}</p>
+            )}
+            <p className="mt-2 text-xs text-muted">
+              Assessment Brain could not safely generate a rubric for this question — a rubric would have
+              had to guess. Use Edit above to fix the question, then generate rubrics again.
+            </p>
+          </div>
         ) : generationStatus === "FAILED" ? (
           <div>
             <StatusBadge label="Rubric generation failed" tone="danger" size="sm" />

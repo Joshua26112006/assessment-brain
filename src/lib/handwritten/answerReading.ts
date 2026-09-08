@@ -114,6 +114,7 @@ export async function readHandwrittenSubmission(
     userContent,
     temperature: 0.1,
     maxAttempts: 2,
+    stage: "HANDWRITTEN_ANSWER_READING",
   });
 
   const validPageNumbers = new Set(pages.map((p) => p.pageNumber));

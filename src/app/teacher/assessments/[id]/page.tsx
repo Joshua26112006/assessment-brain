@@ -7,6 +7,7 @@ import StatusBadge, { assessmentBadge } from "@/components/ui/StatusBadge";
 import { buttonClass } from "@/components/ui/styles";
 import AddQuestionForm from "./AddQuestionForm";
 import QuestionCard from "./QuestionCard";
+import DeleteAllQuestionsButton from "./DeleteAllQuestionsButton";
 import QuestionPaperSection from "./QuestionPaperSection";
 import RubricGenerationWatcher from "./RubricGenerationWatcher";
 import AssessmentReadinessPanel from "./AssessmentReadinessPanel";
@@ -34,6 +35,9 @@ export default async function AssessmentDetailPage({
           id: q.rubric.id,
           generationStatus: q.rubric.generationStatus,
           generationError: q.rubric.generationError,
+          validationIssueType: q.rubric.validationIssueType,
+          validationIssueSummary: q.rubric.validationIssueSummary,
+          validationExplanation: q.rubric.validationExplanation,
           activeVersion: q.rubric.activeVersion
             ? {
                 id: q.rubric.activeVersion.id,
@@ -65,6 +69,8 @@ export default async function AssessmentDetailPage({
             generationStatus: q.rubric.generationStatus,
             activeVersionId: q.rubric.activeVersionId,
             generationError: q.rubric.generationError,
+            validationIssueType: q.rubric.validationIssueType,
+            validationIssueSummary: q.rubric.validationIssueSummary,
           }
         : null,
     })),
@@ -114,21 +120,31 @@ export default async function AssessmentDetailPage({
         />
       ) : (
         <Card tone="muted" className="mb-8">
-          <p className="text-sm font-medium">This assessment is live</p>
-          <p className="mt-1 text-sm text-muted">
-            As students submit, answers are evaluated against these rubrics. Results appear under{" "}
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium">This assessment is live</p>
+              <p className="mt-1 text-sm text-muted">
+                As students submit, answers are evaluated against these rubrics. Results appear under{" "}
+                <Link
+                  href={`/teacher/assessments/${assessment.id}/submissions`}
+                  className="font-medium text-accent-text hover:underline"
+                >
+                  Submissions &amp; results
+                </Link>
+                , and anything the evaluation was unsure about goes to your{" "}
+                <Link href="/teacher/review-queue" className="font-medium text-accent-text hover:underline">
+                  review queue
+                </Link>
+                .
+              </p>
+            </div>
             <Link
-              href={`/teacher/assessments/${assessment.id}/submissions`}
-              className="font-medium text-accent-text hover:underline"
+              href={`/teacher/assessments/${assessment.id}/rubrics`}
+              className={`${buttonClass("secondary")} shrink-0`}
             >
-              Submissions &amp; results
+              View Complete Assessment Rubric
             </Link>
-            , and anything the evaluation was unsure about goes to your{" "}
-            <Link href="/teacher/review-queue" className="font-medium text-accent-text hover:underline">
-              review queue
-            </Link>
-            .
-          </p>
+          </div>
         </Card>
       )}
 
@@ -138,6 +154,11 @@ export default async function AssessmentDetailPage({
         id="questions-and-rubrics"
         title="Questions & rubrics"
         description='Once every question exists, use "Generate All Rubrics" above to have Assessment Brain write a detailed marking rubric for each one — the expected answer, solution approach, marking checkpoints, and partial-credit guidance. Manually editing a rubric is still available as an advanced override.'
+        actions={
+          questions.length > 0 && (
+            <DeleteAllQuestionsButton assessmentId={assessment.id} count={questions.length} />
+          )
+        }
       >
         {questions.length === 0 ? (
           <EmptyState

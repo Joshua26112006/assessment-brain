@@ -3,7 +3,7 @@ import { requireTeacherSession } from "@/lib/require-teacher";
 import { getOwnedAssessmentOrNotFound } from "@/lib/assessment-ownership";
 import { computeAssessmentReadiness } from "@/lib/assessment/readiness";
 import { PageHeader, EmptyState } from "@/components/ui/Page";
-import StatusBadge, { rubricGenerationBadge } from "@/components/ui/StatusBadge";
+import StatusBadge, { rubricGenerationBadge, questionValidationIssueLabel } from "@/components/ui/StatusBadge";
 import { buttonClass } from "@/components/ui/styles";
 import RubricViewer, {
   parseRubricApproaches,
@@ -22,8 +22,11 @@ interface QuestionForRubricsPage {
   questionText: string;
   maximumMarks: number;
   rubric: {
-    generationStatus: "PENDING" | "GENERATING" | "READY" | "FAILED";
+    generationStatus: "PENDING" | "GENERATING" | "READY" | "FAILED" | "REVIEW_REQUIRED";
     generationError: string | null;
+    validationIssueType: string | null;
+    validationIssueSummary: string | null;
+    validationExplanation: string | null;
     activeVersion: {
       versionNumber: number;
       expectedAnswer: string | null;
@@ -64,6 +67,9 @@ export default async function AssessmentRubricsPage({
       ? {
           generationStatus: q.rubric.generationStatus,
           generationError: q.rubric.generationError,
+          validationIssueType: q.rubric.validationIssueType,
+          validationIssueSummary: q.rubric.validationIssueSummary,
+          validationExplanation: q.rubric.validationExplanation,
           activeVersion: q.rubric.activeVersion
             ? {
                 versionNumber: q.rubric.activeVersion.versionNumber,
@@ -90,6 +96,8 @@ export default async function AssessmentRubricsPage({
             generationStatus: q.rubric.generationStatus,
             activeVersionId: q.rubric.activeVersionId,
             generationError: q.rubric.generationError,
+            validationIssueType: q.rubric.validationIssueType,
+            validationIssueSummary: q.rubric.validationIssueSummary,
           }
         : null,
     })),
@@ -168,7 +176,7 @@ export default async function AssessmentRubricsPage({
 
           <div className="flex flex-col gap-6">
             {questions.map((question) => (
-              <QuestionRubricSection key={question.id} question={question} />
+              <QuestionRubricSection key={question.id} assessmentId={assessment.id} question={question} />
             ))}
           </div>
         </div>
@@ -177,7 +185,13 @@ export default async function AssessmentRubricsPage({
   );
 }
 
-function QuestionRubricSection({ question }: { question: QuestionForRubricsPage }) {
+function QuestionRubricSection({
+  assessmentId,
+  question,
+}: {
+  assessmentId: string;
+  question: QuestionForRubricsPage;
+}) {
   const rubric = question.rubric;
   const activeVersion = rubric?.activeVersion ?? null;
   const generationStatus = rubric?.generationStatus ?? "PENDING";
@@ -204,6 +218,29 @@ function QuestionRubricSection({ question }: { question: QuestionForRubricsPage 
             partialCreditGuidance: activeVersion.partialCreditGuidance,
           }}
         />
+      ) : generationStatus === "REVIEW_REQUIRED" ? (
+        <div className="mt-4 rounded-lg border border-danger-line bg-danger-soft p-4">
+          <StatusBadge label={badge.label} tone={badge.tone} size="sm" />
+          <p className="mt-2 text-sm font-semibold text-danger">
+            Issue: {rubric?.validationIssueType ? questionValidationIssueLabel(rubric.validationIssueType) : "—"}
+          </p>
+          {rubric?.validationIssueSummary && (
+            <p className="mt-1 text-sm text-danger">{rubric.validationIssueSummary}</p>
+          )}
+          {rubric?.validationExplanation && (
+            <p className="mt-1.5 text-sm text-muted">{rubric.validationExplanation}</p>
+          )}
+          <p className="mt-3 text-sm text-muted">
+            Assessment Brain could not safely generate a rubric for this question — it would have had to
+            guess. Fix the question, then generate rubrics again.
+          </p>
+          <a
+            href={`/teacher/assessments/${assessmentId}#question-${question.questionNumber}`}
+            className={`${buttonClass("secondary", "sm")} mt-3 inline-block`}
+          >
+            Edit Question
+          </a>
+        </div>
       ) : generationStatus === "FAILED" ? (
         <div className="mt-4 rounded-lg border border-danger-line bg-danger-soft p-4">
           <StatusBadge label={badge.label} tone={badge.tone} size="sm" />

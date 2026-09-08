@@ -68,6 +68,7 @@ export async function generateRubricWithAi(input: RubricGenerationInput): Promis
     userPrompt,
     temperature: 0.2,
     maxAttempts: 2,
+    stage: "RUBRIC_GENERATION",
   });
 
   return validate(raw, input.maximumMarks);

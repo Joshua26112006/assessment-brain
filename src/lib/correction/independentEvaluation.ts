@@ -63,6 +63,7 @@ export async function evaluateIndependently(params: {
     model: VERIFY_MODEL,
     systemPrompt,
     userPrompt,
+    stage: "INDEPENDENT_AI_EVALUATION",
   });
 
   return validate(raw, validIndices);

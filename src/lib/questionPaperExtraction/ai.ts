@@ -81,6 +81,7 @@ export async function extractQuestionPaperWithAi(
     userContent,
     temperature: 0.1,
     maxAttempts: 2,
+    stage: "QUESTION_PAPER_EXTRACTION",
   });
 
   return validate(raw);

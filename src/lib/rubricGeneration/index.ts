@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { generateRubricWithAi } from "./ai";
+import { validateQuestionForRubricGeneration } from "./questionValidation";
 
 /**
  * Runs (or re-runs) automatic AI rubric generation for one Question and
@@ -24,11 +25,30 @@ import { generateRubricWithAi } from "./ai";
  * row lock, so two near-simultaneous triggers (a retry click racing the
  * original background task, or two batch triggers for the same question)
  * can never both run generation for the same question at once.
+ *
+ * Phase 4.4: before any rubric content is generated, the question is first
+ * run through validateQuestionForRubricGeneration. A question judged
+ * REVIEW_REQUIRED is persisted as such and the function returns immediately
+ * — generateRubricWithAi is never called for it, so a broken/ambiguous
+ * question can never receive a rubric built on an invented assumption.
+ * Deliberately NOT a separate claimed stage of its own: both steps run
+ * inside this one already-claimed GENERATING window, so the teacher-facing
+ * UI never needs a third "validating" status distinct from "generating."
+ * The atomic claim only ever matches PENDING/FAILED, never REVIEW_REQUIRED —
+ * once a question is flagged, nothing re-attempts it until the teacher
+ * edits it (see updateQuestion in actions.ts, the only place that resets a
+ * REVIEW_REQUIRED row back to PENDING).
  */
 export async function generateRubricForQuestion(questionId: string): Promise<void> {
   const claimed = await prisma.rubric.updateMany({
     where: { questionId, generationStatus: { in: ["PENDING", "FAILED"] } },
-    data: { generationStatus: "GENERATING", generationError: null },
+    data: {
+      generationStatus: "GENERATING",
+      generationError: null,
+      validationIssueType: null,
+      validationIssueSummary: null,
+      validationExplanation: null,
+    },
   });
   if (claimed.count === 0) return;
 
@@ -36,6 +56,7 @@ export async function generateRubricForQuestion(questionId: string): Promise<voi
     const question = await prisma.question.findUnique({
       where: { id: questionId },
       select: {
+        questionNumber: true,
         questionText: true,
         maximumMarks: true,
         assessment: { select: { title: true, subject: true, grade: true, curriculum: true } },
@@ -43,6 +64,30 @@ export async function generateRubricForQuestion(questionId: string): Promise<voi
     });
     if (!question) {
       throw new Error("This question no longer exists.");
+    }
+
+    const validation = await validateQuestionForRubricGeneration({
+      questionNumber: question.questionNumber,
+      questionText: question.questionText,
+      maximumMarks: Number(question.maximumMarks),
+      subject: question.assessment.subject,
+      grade: question.assessment.grade,
+      curriculum: question.assessment.curriculum,
+      assessmentTitle: question.assessment.title,
+    });
+
+    if (validation.status === "REVIEW_REQUIRED") {
+      await prisma.rubric.update({
+        where: { questionId },
+        data: {
+          generationStatus: "REVIEW_REQUIRED",
+          generationError: null,
+          validationIssueType: validation.issueType,
+          validationIssueSummary: validation.issueSummary,
+          validationExplanation: validation.explanation,
+        },
+      });
+      return;
     }
 
     const draft = await generateRubricWithAi({
@@ -94,6 +139,9 @@ export async function generateRubricForQuestion(questionId: string): Promise<voi
           activeVersionId: newVersion.id,
           generationStatus: "READY",
           generationError: null,
+          validationIssueType: null,
+          validationIssueSummary: null,
+          validationExplanation: null,
         },
       });
     });
@@ -108,7 +156,13 @@ export async function generateRubricForQuestion(questionId: string): Promise<voi
     await prisma.rubric
       .update({
         where: { questionId },
-        data: { generationStatus: "FAILED", generationError: message },
+        data: {
+          generationStatus: "FAILED",
+          generationError: message,
+          validationIssueType: null,
+          validationIssueSummary: null,
+          validationExplanation: null,
+        },
       })
       .catch(() => {
         // The row may have been deleted concurrently (the question itself
@@ -153,6 +207,14 @@ export async function generateRubricsForQuestions(questionIds: string[]): Promis
  * doesn't pay for a wasted claim attempt and question lookup on every one of
  * them each time this runs.
  *
+ * REVIEW_REQUIRED (Phase 4.4) is also deliberately excluded: a question the
+ * validator flagged needs the teacher to actually change something first —
+ * blindly re-running the same unedited question through the same validator
+ * would almost always just reproduce the same verdict. It only re-enters
+ * this target set once updateQuestion resets it back to PENDING after an
+ * edit; there is no bulk "retry flagged questions" path by design.
+ *
+
  * Safe to call concurrently (double-click, or a stray retry racing this):
  * each question's own PENDING/FAILED -> GENERATING claim inside
  * generateRubricForQuestion is what actually serializes work per question,

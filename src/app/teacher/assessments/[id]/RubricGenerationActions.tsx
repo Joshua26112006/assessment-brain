@@ -10,9 +10,9 @@ import type { AssessmentReadiness } from "@/lib/assessment/readiness";
 const initialState: ActionState = {};
 
 /**
- * Phase 4.3 Step 11 — the one assessment-level rubric-generation call to
- * action, its label and behavior entirely driven by the shared `readiness`
- * object (never a separate calculation):
+ * Phase 4.3 Step 11 (extended in Phase 4.4) — the one assessment-level
+ * rubric-generation call to action, its label and behavior entirely driven
+ * by the shared `readiness` object (never a separate calculation):
  *
  *   - isReady                        -> "View Complete Assessment Rubric"
  *   - generatingCount > 0            -> inert "Generating…" status (no
@@ -24,9 +24,16 @@ const initialState: ActionState = {};
  *   - failedCount > 0                -> "Retry Failed Rubrics" + a secondary
  *                                        "View rubrics" link, so a teacher
  *                                        can see what's already done
- *   - otherwise (PENDING/missing,
- *     nothing generating/failed yet) -> "Generate All Rubrics" (the primary
+ *   - pendingCount/missingCount > 0  -> "Generate All Rubrics" (the primary
  *                                        entry point into the whole feature)
+ *   - otherwise, only reviewRequiredCount > 0 remains -> no button at all:
+ *                                        generateAllRubrics never touches a
+ *                                        REVIEW_REQUIRED question (Phase
+ *                                        4.4 — it can only leave that state
+ *                                        via an edit, see actions.ts), so a
+ *                                        bulk-generate button here would be
+ *                                        a dead click. Points at the
+ *                                        flagged question(s) instead.
  *
  * "Retry Failed Rubrics" and "Generate All Rubrics" both call the exact same
  * server action (generateAllRubrics) — it already only targets questions
@@ -86,14 +93,32 @@ export default function RubricGenerationActions({
     );
   }
 
+  if (readiness.pendingCount > 0 || readiness.missingCount > 0) {
+    return (
+      <div className="flex flex-col items-end gap-1.5">
+        <form action={formAction}>
+          <button type="submit" disabled={isPending} className={buttonClass("primary")}>
+            {isPending ? "Starting…" : "✨ Generate All Rubrics"}
+          </button>
+        </form>
+        {state.error && <p className="max-w-72 text-right text-xs font-medium text-danger">{state.error}</p>}
+      </div>
+    );
+  }
+
+  // Only remaining possibility: reviewRequiredCount > 0 and nothing else is
+  // outstanding — there's nothing left for a bulk action to generate.
   return (
     <div className="flex flex-col items-end gap-1.5">
-      <form action={formAction}>
-        <button type="submit" disabled={isPending} className={buttonClass("primary")}>
-          {isPending ? "Starting…" : "✨ Generate All Rubrics"}
-        </button>
-      </form>
-      {state.error && <p className="max-w-72 text-right text-xs font-medium text-danger">{state.error}</p>}
+      <StatusBadge
+        label={`${readiness.reviewRequiredCount} question${readiness.reviewRequiredCount === 1 ? "" : "s"} need${
+          readiness.reviewRequiredCount === 1 ? "s" : ""
+        } review`}
+        tone="danger"
+      />
+      <p className="max-w-72 text-right text-xs text-muted">
+        Edit the flagged question{readiness.reviewRequiredCount === 1 ? "" : "s"} below, then generate its rubric.
+      </p>
     </div>
   );
 }

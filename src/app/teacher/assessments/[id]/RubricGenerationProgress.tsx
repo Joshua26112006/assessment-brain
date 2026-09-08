@@ -1,9 +1,11 @@
+import { questionValidationIssueLabel } from "@/components/ui/StatusBadge";
 import type { AssessmentReadiness, RubricReadinessBucket } from "@/lib/assessment/readiness";
 
 const ICON: Record<RubricReadinessBucket, string> = {
   READY: "✓",
   GENERATING: "⏳",
   FAILED: "⚠",
+  REVIEW_REQUIRED: "⚠",
   PENDING: "○",
   MISSING: "○",
 };
@@ -12,6 +14,7 @@ const ICON_TONE: Record<RubricReadinessBucket, string> = {
   READY: "text-success",
   GENERATING: "text-info",
   FAILED: "text-danger",
+  REVIEW_REQUIRED: "text-danger",
   PENDING: "text-subtle",
   MISSING: "text-subtle",
 };
@@ -20,6 +23,7 @@ const STATE_LABEL: Record<RubricReadinessBucket, string> = {
   READY: "Ready",
   GENERATING: "Analyzing",
   FAILED: "Failed",
+  REVIEW_REQUIRED: "Needs review",
   PENDING: "Waiting",
   MISSING: "Waiting",
 };
@@ -58,7 +62,12 @@ export default function RubricGenerationProgress({ readiness }: { readiness: Ass
               {ICON[q.bucket]}
             </span>
             <span className="text-foreground">Question {q.questionNumber}</span>
-            <span className="text-xs text-muted">— {STATE_LABEL[q.bucket]}</span>
+            <span className="text-xs text-muted">
+              —{" "}
+              {q.bucket === "REVIEW_REQUIRED" && q.validationIssueType
+                ? questionValidationIssueLabel(q.validationIssueType)
+                : STATE_LABEL[q.bucket]}
+            </span>
           </li>
         ))}
       </ul>

@@ -44,6 +44,7 @@ export async function detectNovelApproachWithAi(params: {
     model: JUDGE_MODEL,
     systemPrompt,
     userPrompt,
+    stage: "NOVEL_APPROACH_AI",
   });
 
   return validate(raw);

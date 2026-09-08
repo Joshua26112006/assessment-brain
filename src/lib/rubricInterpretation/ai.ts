@@ -41,6 +41,7 @@ export async function interpretRubricWithAi(params: {
     model: JUDGE_MODEL,
     systemPrompt,
     userPrompt,
+    stage: "RUBRIC_INTERPRETATION_AI",
   });
 
   return validate(raw, validIndices);

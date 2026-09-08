@@ -27,7 +27,11 @@ const CARD_TONE = {
  * Rubrics" / "View Complete Assessment Rubric", depending on state) and the
  * per-question checklist (RubricGenerationProgress) shown while not every
  * rubric is ready yet — both still driven entirely by this same `readiness`
- * object, never a second calculation.
+ * object, never a second calculation. Phase 4.4 extended that same object
+ * with a REVIEW_REQUIRED bucket (a question the pre-generation validator
+ * flagged as not reliably assessable) — every branch here already reads
+ * `readiness`/`explanation` generically enough that it needed no structural
+ * change, only the underlying calculation growing a new bucket.
  *
  * Deliberately a server component: everything here is derived from already-
  * fetched data, and the interactive pieces (PublishButton,
@@ -71,6 +75,9 @@ export default function AssessmentReadinessPanel({
                 value={`${analysisPercent}%`}
                 emphasis={analysisPercent < 100}
               />
+              {readiness.reviewRequiredCount > 0 && (
+                <MetricCard label="Needs review" value={readiness.reviewRequiredCount} emphasis />
+              )}
             </div>
           )}
 
@@ -83,12 +90,14 @@ export default function AssessmentReadinessPanel({
             <RubricGenerationProgress readiness={readiness} />
           )}
 
-          {(readiness.failedCount > 0 || readiness.missingCount > 0) && (
+          {(readiness.failedCount > 0 || readiness.missingCount > 0 || readiness.reviewRequiredCount > 0) && (
             <a
               href="#questions-and-rubrics"
               className="mt-3 inline-block text-xs font-medium text-accent-text hover:underline"
             >
-              Review problem question{readiness.failedCount + readiness.missingCount === 1 ? "" : "s"} below →
+              Review problem question
+              {readiness.failedCount + readiness.missingCount + readiness.reviewRequiredCount === 1 ? "" : "s"} below
+              →
             </a>
           )}
         </div>

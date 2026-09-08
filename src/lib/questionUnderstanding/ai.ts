@@ -35,6 +35,7 @@ export async function understandQuestionWithAi(params: {
     model: READ_MODEL,
     systemPrompt,
     userPrompt,
+    stage: "QUESTION_UNDERSTANDING_AI",
   });
 
   return validate(raw);
