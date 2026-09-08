@@ -1,6 +1,9 @@
 import { compareReadingToRubric } from "@/lib/mathCorrection/comparisonEngine";
 import { verifyComparisonResult } from "@/lib/mathCorrection/verificationAgent";
-import { generateExplanations } from "@/lib/mathCorrection/explanationGenerator";
+import {
+  buildUnverifiedExplanations,
+  generateExplanations,
+} from "@/lib/mathCorrection/explanationGenerator";
 import { scoreQuestion, type QuestionScore } from "@/lib/mathCorrection/scoring";
 import type {
   ComparisonResult,
@@ -17,7 +20,7 @@ import type { RubricMarkingCheckpoint } from "@/types/rubricGeneration";
  *   reading (already done for the whole submission, passed in)
  *     -> comparison against the rubric   (deterministic)
  *     -> independent verification        (only if errors were found)
- *     -> student-facing explanation      (only if verification passed)
+ *     -> student-facing explanation      (wording depends on verification)
  *
  * with marking running alongside, because a mark and a mistake are separate
  * findings — see scoring.ts.
@@ -43,18 +46,19 @@ export interface MathQuestionInput {
 export interface MathQuestionCorrection {
   questionId: string;
   questionNumber: number;
+  /** The reading these findings were derived from, carried through for the record. */
+  reading: ReconciledMathReading;
   /** Null when marking itself failed — the caller must flag this rather than record a zero. */
   score: QuestionScore | null;
   comparison: ComparisonResult;
   verification: VerificationResult | null;
-  /** Confirmed, student-facing findings. Empty whenever nothing survived verification. */
-  explanations: ErrorExplanation[];
   /**
-   * True when the comparison did find errors but they could not be
-   * independently confirmed, so none are being shown. The findings are
-   * withheld rather than shown with a caveat: an unconfirmed claim marked on
-   * a student's own page reads to them as a fact about their work.
+   * Student-facing findings, one per comparison error. Confirmed findings name
+   * the correct value; unconfirmed ones only point at the spot (see
+   * buildUnverifiedExplanations), so nothing unverified is ever asserted.
    */
+  explanations: ErrorExplanation[];
+  /** True only when error analysis failed outright, so nothing could be looked for. */
   mistakesWithheld: boolean;
 }
 
@@ -74,16 +78,32 @@ async function analyseErrors(
   };
 
   const verification = await verifyComparisonResult(question, comparison);
+
+  // Verification decides how confidently a finding is worded, not whether the
+  // student is told about it at all. Withholding everything unless every claim
+  // was confirmed was tried first and proved far too strict in practice: a
+  // single unconfirmable claim silenced every mark on the question, so a
+  // student lost marks with nothing on their page showing where. Deterministic
+  // comparison against the rubric is real evidence on its own, so unconfirmed
+  // findings are still shown — just worded so they assert nothing.
   if (verification.status !== "PASS") {
-    return { comparison, verification, explanations: [], mistakesWithheld: true };
+    return {
+      comparison,
+      verification,
+      explanations: buildUnverifiedExplanations(comparison.errors),
+      mistakesWithheld: false,
+    };
   }
 
   const explained = await generateExplanations(question, comparison, verification);
   return {
     comparison,
     verification,
-    explanations: explained.explanations,
-    mistakesWithheld: explained.status !== "generated",
+    explanations:
+      explained.status === "generated"
+        ? explained.explanations
+        : buildUnverifiedExplanations(comparison.errors),
+    mistakesWithheld: false,
   };
 }
 
@@ -123,6 +143,7 @@ export async function correctMathQuestion(input: MathQuestionInput): Promise<Mat
   return {
     questionId: input.questionId,
     questionNumber: input.questionNumber,
+    reading: input.reading,
     score: scoreOutcome.status === "fulfilled" ? scoreOutcome.value : null,
     comparison: analysis.comparison,
     verification: analysis.verification,

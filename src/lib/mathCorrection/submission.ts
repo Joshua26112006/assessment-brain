@@ -170,6 +170,26 @@ async function persistCorrection(
       status,
       gradingResult: buildGradingResult(correction, context.maximumMarks) as unknown as object,
       annotationResult: buildAnnotationResult(correction) as unknown as object,
+      // What the reading extracted and what the comparison concluded from it.
+      // Persisted because without it there is no way to answer "why was nothing
+      // marked on this page" after the fact — the stages are AI calls whose
+      // inputs cannot be reconstructed from a rerun, and diagnosing a real
+      // submission previously meant re-running the whole read to guess.
+      correctionResult: {
+        reading: {
+          attempted: correction.reading.attempted,
+          agreementConfidence: correction.reading.agreementConfidence,
+          structureConfidence: correction.reading.structureConfidence,
+          problemType: correction.reading.problemType,
+          variables: Object.fromEntries(
+            Object.entries(correction.reading.variables).map(([name, value]) => [name, value.raw]),
+          ),
+          studentAnswer: correction.reading.studentAnswer?.raw ?? null,
+        },
+        comparison: correction.comparison,
+        verificationStatus: correction.verification?.status ?? null,
+        explanationCount: correction.explanations.length,
+      } as unknown as object,
       // Pin the exact rubric version this was judged against, so the result
       // stays reproducible after the rubric changes — the same guarantee the
       // existing pipeline provides.

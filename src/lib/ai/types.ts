@@ -22,6 +22,17 @@ export interface StructuredAiCallOptions {
    * instance, where two students' identical work must not score differently.
    */
   seed?: number;
+  /**
+   * Upper bound on the response length.
+   *
+   * Worth setting on every call: OpenRouter reserves credit for the FULL
+   * requested output up front, so leaving this unset reserves the model's
+   * entire output window and a pricier model then fails with a 402 that reads
+   * as the model being unavailable. Set it high enough that a legitimate
+   * response is never truncated — a cut-off response fails JSON parsing, which
+   * is a worse failure than a slightly larger reservation.
+   */
+  maxTokens?: number;
   /** The caller's own context label (e.g. "RUBRIC_GENERATION") — attributes AiCallLog rows back to a stage. */
   stage: string;
   /** Caller-supplied identifiers (questionId, submissionId, ...) for the AiCallLog row. Shape varies by stage. */
@@ -45,6 +56,17 @@ export interface StructuredAiCallWithContentOptions {
    * instance, where two students' identical work must not score differently.
    */
   seed?: number;
+  /**
+   * Upper bound on the response length.
+   *
+   * Worth setting on every call: OpenRouter reserves credit for the FULL
+   * requested output up front, so leaving this unset reserves the model's
+   * entire output window and a pricier model then fails with a 402 that reads
+   * as the model being unavailable. Set it high enough that a legitimate
+   * response is never truncated — a cut-off response fails JSON parsing, which
+   * is a worse failure than a slightly larger reservation.
+   */
+  maxTokens?: number;
   /** The caller's own context label (e.g. "QUESTION_PAPER_EXTRACTION") — attributes AiCallLog rows back to a stage. */
   stage: string;
   /** Caller-supplied identifiers (questionId, submissionId, ...) for the AiCallLog row. Shape varies by stage. */

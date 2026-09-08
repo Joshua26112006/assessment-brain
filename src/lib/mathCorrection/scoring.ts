@@ -113,6 +113,7 @@ export async function scoreQuestion(input: ScoringInput): Promise<QuestionScore>
     // student with no mark for work they did — worth retrying harder before
     // giving up and asking a teacher to step in.
     maxAttempts: 3,
+    maxTokens: 800,
     stage: "MATH_SCORING",
   });
 

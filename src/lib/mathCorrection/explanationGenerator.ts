@@ -152,6 +152,35 @@ export interface ExplanationQuestion {
   subject: string;
 }
 
+/**
+ * Findings written up without a model, used when independent verification did
+ * not confirm them.
+ *
+ * These still reach the student. The alternative — showing nothing at all —
+ * was tried and is worse in practice: a wrong value the comparison found
+ * deterministically is real evidence, and silently dropping it leaves a
+ * student looking at a mark they lost with no indication of where. What the
+ * unverified state does change is the wording: nothing here asserts what the
+ * right answer was, it only points at the spot, so an unconfirmed finding can
+ * never put a false statement in front of a student.
+ */
+export function buildUnverifiedExplanations(errors: ComparisonError[]): ErrorExplanation[] {
+  const ordered = [...errors.filter(isRootError), ...errors.filter((error) => !isRootError(error))];
+
+  return ordered.map((error) => ({
+    errorId: error.id,
+    explanationType: deriveExplanationType(error),
+    explanation:
+      error.type === "MISSING_STEP"
+        ? `Check this part — the working doesn't clearly show ${error.variable ?? "a value that's needed here"}.`
+        : "Check this part of your working — it doesn't match what was expected here.",
+    wrongText: error.actual?.raw,
+    // Deliberately omitted: an unverified expected value must not be presented
+    // to a student as the correct one.
+    correctVersion: undefined,
+  }));
+}
+
 export async function generateExplanations(
   question: ExplanationQuestion,
   comparison: ComparisonResult,
@@ -178,6 +207,7 @@ export async function generateExplanations(
         confidenceByErrorId,
       ),
       temperature: 0,
+      maxTokens: 1500,
       stage: "MATH_EXPLANATION",
     });
     claims = parseClaims(raw);

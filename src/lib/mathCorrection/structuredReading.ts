@@ -195,6 +195,10 @@ async function readOnce(
     userContent,
     temperature: 0.1,
     maxAttempts: 2,
+    // Generous: this returns a full transcription, steps and variables for
+    // every question on the paper at once, and a truncated response would fail
+    // to parse and lose the whole read.
+    maxTokens: 8000,
     stage: "MATH_STRUCTURED_READING",
   });
 

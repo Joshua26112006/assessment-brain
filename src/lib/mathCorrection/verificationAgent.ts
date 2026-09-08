@@ -224,12 +224,16 @@ export async function verifyComparisonResult(
           "You independently verify individual claims about a student's exam answer. You never accept a claimed value on trust — you derive each value yourself.",
         userPrompt: buildRootPrompt(question, rootErrors),
         temperature: 0,
+        maxTokens: 2000,
         stage: "MATH_VERIFICATION",
       });
       claims = parseClaims(raw);
-    } catch {
+    } catch (error) {
       // A failed verification call must never promote unverified claims: every
-      // root error simply stays unverified, which fails the whole result below.
+      // root error simply stays unverified. Logged rather than swallowed —
+      // silently treating a broken verifier as "could not confirm" once hid a
+      // total verification outage behind results that merely looked cautious.
+      console.error("Maths verification call failed for root errors", error);
       claims = new Map();
     }
 
@@ -280,11 +284,13 @@ export async function verifyComparisonResult(
           "You independently verify individual claims about a student's exam answer. You never accept a claimed value on trust — you derive each value yourself.",
         userPrompt: buildConsequencePrompt(question, error, dependencies),
         temperature: 0,
+        maxTokens: 800,
         stage: "MATH_VERIFICATION",
       });
       const claim = parseClaims(raw).get(error.id);
       verification = claim ? judge(error, claim) : unverifiable(error);
-    } catch {
+    } catch (callError) {
+      console.error("Maths verification call failed for a consequence error", callError);
       verification = unverifiable(error);
     }
 

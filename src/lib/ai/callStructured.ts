@@ -25,6 +25,7 @@ export async function callStructuredAi<T>(options: StructuredAiCallOptions): Pro
         model: options.model,
         temperature: options.temperature ?? 0.2,
         seed: options.seed,
+        max_tokens: options.maxTokens,
         messages: [
           { role: "system", content: options.systemPrompt },
           { role: "user", content: options.userPrompt },
@@ -75,6 +76,7 @@ export async function callStructuredAiWithContent<T>(
         model: options.model,
         temperature: options.temperature ?? 0.2,
         seed: options.seed,
+        max_tokens: options.maxTokens,
         messages: [
           { role: "system", content: options.systemPrompt },
           { role: "user", content: options.userContent },
