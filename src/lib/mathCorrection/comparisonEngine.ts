@@ -92,6 +92,18 @@ function compareValue(
   return { type: mismatchType, expected, actual, comparisonMethod: "numeric", tolerance };
 }
 
+/**
+ * True only when both values are genuinely numeric AND agree. Deliberately
+ * distinct from compareValue returning null, which also covers "could not be
+ * compared at all" — an unparseable answer is not evidence the student got it
+ * right, and must not be treated as such.
+ */
+function valuesMatchNumerically(expected: ExtractedValue | null, actual: ExtractedValue | null): boolean {
+  if (!expected || !actual) return false;
+  if (expected.parsed === null || actual.parsed === null) return false;
+  return Math.abs(actual.parsed - expected.parsed) <= numericTolerance(expected.parsed);
+}
+
 interface ApproachComparison {
   approachLabel: string;
   errors: ComparisonError[];
@@ -115,18 +127,28 @@ function compareAgainstApproach(
   let matchedVariableCount = 0;
   const expectedEntries = Object.entries(approach.variables);
 
+  // A student who arrived at the right final answer cannot have skipped a step
+  // needed to reach it, so a quantity we failed to find is our reader missing
+  // it, not the student omitting it. Suppressing that here matters: a missing
+  // quantity is the one finding inferred from ABSENCE, so it is the only one
+  // an imperfect read can invent out of nothing — and it did, telling a student
+  // who scored full marks that they had left out a value they plainly wrote.
+  const reachedCorrectAnswer = valuesMatchNumerically(correctAnswer, reading.studentAnswer);
+
   for (const [expectedName, expectedValue] of expectedEntries) {
     const studentValue = studentByName.get(normalizeVariableName(expectedName));
 
     if (!studentValue) {
-      errors.push({
-        id: nextErrorId(),
-        type: "MISSING_STEP",
-        variable: expectedName,
-        expected: expectedValue,
-        comparisonMethod: "presence_check",
-        dependsOn: [],
-      });
+      if (!reachedCorrectAnswer) {
+        errors.push({
+          id: nextErrorId(),
+          type: "MISSING_STEP",
+          variable: expectedName,
+          expected: expectedValue,
+          comparisonMethod: "presence_check",
+          dependsOn: [],
+        });
+      }
       continue;
     }
 
