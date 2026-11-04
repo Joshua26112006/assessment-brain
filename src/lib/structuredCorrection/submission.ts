@@ -218,35 +218,51 @@ async function persistCorrection(
   }
 }
 
+type ConflictKind = "not_attempted" | "missing" | "reader_failed" | "question_failed";
+
+const CONFLICT_DETAIL: Record<ConflictKind, string> = {
+  missing: "Writing was found for this question, but it could not be read for marking.",
+  not_attempted: "Writing was found for this question, but the marking read found no answer.",
+  reader_failed: "The answer sheet could not be read for marking, so this question has no draft mark.",
+  question_failed: "Marking this question failed unexpectedly, so it has no draft mark.",
+};
+
 /**
- * Records that the two reading stages disagree about whether a question was
- * answered, and hands it to a teacher rather than guessing a mark.
+ * Records that this question cannot be marked automatically — the two reading
+ * stages disagree about whether it was answered, the sheet could not be read,
+ * or the marking itself failed — and hands it to a teacher rather than guessing
+ * a mark. Without this, the response stayed pending forever and the whole
+ * submission sat in PROCESSING with nothing in any teacher's queue.
+ *
+ * Never throws: it runs on failure paths, and a failure to record the failure
+ * must not hide the original one or stop the other questions being flagged.
  */
 async function flagReadingConflict(
   context: QuestionContext,
   assessmentId: string,
   submissionId: string,
-  kind: "not_attempted" | "missing",
+  kind: ConflictKind,
 ): Promise<void> {
-  await prisma.questionResponse.update({
-    where: { id: context.responseId },
-    data: { status: "NEEDS_REVIEW" },
-  });
-  await createReviewItemIfNeeded({
-    reason: "AMBIGUOUS_EXTRACTION",
-    assessmentId,
-    questionId: context.questionId,
-    submissionId,
-    questionResponseId: context.responseId,
-    context: {
-      detail:
-        kind === "missing"
-          ? "Writing was found for this question, but it could not be read for marking."
-          : "Writing was found for this question, but the marking read found no answer.",
-      mappedTextSample: context.mappedText.slice(0, 200),
-      sourcePages: context.sourcePages,
-    },
-  });
+  try {
+    await prisma.questionResponse.update({
+      where: { id: context.responseId },
+      data: { status: "NEEDS_REVIEW" },
+    });
+    await createReviewItemIfNeeded({
+      reason: "AMBIGUOUS_EXTRACTION",
+      assessmentId,
+      questionId: context.questionId,
+      submissionId,
+      questionResponseId: context.responseId,
+      context: {
+        detail: CONFLICT_DETAIL[kind],
+        mappedTextSample: context.mappedText.slice(0, 200),
+        sourcePages: context.sourcePages,
+      },
+    });
+  } catch (error) {
+    console.error("Could not flag a question for teacher review", error);
+  }
 }
 
 /**
@@ -297,6 +313,9 @@ export async function runStructuredCorrectionForSubmission(submissionId: string)
     );
   } catch (error) {
     console.error("Structured correction could not read the answer sheet", error);
+    await Promise.all(
+      contexts.map((context) => flagReadingConflict(context, submission.assessmentId, submissionId, "reader_failed")),
+    );
     return;
   }
 
@@ -335,11 +354,15 @@ export async function runStructuredCorrectionForSubmission(submissionId: string)
   const corrected = outcomes.flatMap((outcome) =>
     outcome.status === "fulfilled" && outcome.value ? [outcome.value] : [],
   );
-  for (const outcome of outcomes) {
-    if (outcome.status === "rejected") {
+  // A question that threw has no mark and would otherwise stay pending for
+  // good. outcomes[i] belongs to contexts[i].
+  await Promise.all(
+    outcomes.map(async (outcome, index) => {
+      if (outcome.status !== "rejected") return;
       console.error("Structured correction failed for one question", outcome.reason);
-    }
-  }
+      await flagReadingConflict(contexts[index], submission.assessmentId, submissionId, "question_failed");
+    }),
+  );
   if (corrected.length === 0) return;
 
   const annotatableQuestions: AnnotatableQuestion[] = corrected.map(({ context, correction }) => ({
