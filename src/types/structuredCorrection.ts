@@ -104,6 +104,16 @@ export interface ReconciledReading {
   studentAnswer: ExtractedValue | null;
   /** The model's own confidence that the decomposition reflects the transcription. */
   structureConfidence: ReconcileConfidence;
+  /**
+   * What the OTHER reading pass extracted, so a value is only treated as
+   * something the student wrote when both passes read it the same way. Null
+   * when only one pass succeeded (nothing could be cross-checked); undefined
+   * when the caller did not record it, which the comparison treats as before.
+   */
+  secondPass?: {
+    variables: Record<string, ExtractedValue>;
+    studentAnswer: ExtractedValue | null;
+  } | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -146,7 +156,15 @@ export type ComparisonStatus =
   /** The student did not attempt this question — a scoring outcome, not a mistake. */
   | "skipped_not_attempted"
   /** No structured expectation exists for this question (not a checkable question, or generation produced none). */
-  | "skipped_no_expectation";
+  | "skipped_no_expectation"
+  /**
+   * The rubric's answer is not a number (a balanced equation, a name, a
+   * sentence), so nothing here can be checked numerically — and a "missing
+   * value" inferred against it would be a guess.
+   */
+  | "skipped_not_numeric"
+  /** The reading itself was low confidence, so no finding about it is safe to make. */
+  | "skipped_low_confidence";
 
 export interface ComparisonResult {
   status: ComparisonStatus;

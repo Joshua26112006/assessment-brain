@@ -39,6 +39,8 @@ interface QuestionContext {
   rubricVersionId: string | null;
   responseId: string;
   sourcePages: number[];
+  /** What the answer-mapping stage found written for this question. */
+  mappedText: string;
 }
 
 function stageBase<T extends string>(stage: T) {
@@ -134,7 +136,7 @@ async function loadQuestionContexts(submissionId: string, assessmentId: string):
     if (!response || TERMINAL_STATUSES.includes(response.status)) return [];
 
     const version = question.rubric?.activeVersion ?? null;
-    const studentAnswer = (response.studentAnswer ?? {}) as { sourcePages?: unknown };
+    const studentAnswer = (response.studentAnswer ?? {}) as { sourcePages?: unknown; text?: unknown };
 
     return [
       {
@@ -151,6 +153,7 @@ async function loadQuestionContexts(submissionId: string, assessmentId: string):
         sourcePages: Array.isArray(studentAnswer.sourcePages)
           ? studentAnswer.sourcePages.filter((page): page is number => typeof page === "number")
           : [],
+        mappedText: typeof studentAnswer.text === "string" ? studentAnswer.text.trim() : "",
       },
     ];
   });
@@ -216,6 +219,37 @@ async function persistCorrection(
 }
 
 /**
+ * Records that the two reading stages disagree about whether a question was
+ * answered, and hands it to a teacher rather than guessing a mark.
+ */
+async function flagReadingConflict(
+  context: QuestionContext,
+  assessmentId: string,
+  submissionId: string,
+  kind: "not_attempted" | "missing",
+): Promise<void> {
+  await prisma.questionResponse.update({
+    where: { id: context.responseId },
+    data: { status: "NEEDS_REVIEW" },
+  });
+  await createReviewItemIfNeeded({
+    reason: "AMBIGUOUS_EXTRACTION",
+    assessmentId,
+    questionId: context.questionId,
+    submissionId,
+    questionResponseId: context.responseId,
+    context: {
+      detail:
+        kind === "missing"
+          ? "Writing was found for this question, but it could not be read for marking."
+          : "Writing was found for this question, but the marking read found no answer.",
+      mappedTextSample: context.mappedText.slice(0, 200),
+      sourcePages: context.sourcePages,
+    },
+  });
+}
+
+/**
  * Whether this assessment's rubrics can actually be checked question by
  * question — i.e. at least one has a structured expectation the rubric itself
  * judged solvable.
@@ -271,7 +305,14 @@ export async function runStructuredCorrectionForSubmission(submissionId: string)
   const outcomes = await Promise.allSettled(
     contexts.map(async (context) => {
       const reading = readings.get(context.questionNumber);
-      if (!reading) return null;
+      // The mapping stage found writing for this question, but the reader either
+      // returned nothing for it or says it was never attempted. One of the two
+      // is wrong, and marking it 0 would silently take marks from a student who
+      // may have answered — so a teacher decides instead.
+      if (!reading || (!reading.attempted && context.mappedText)) {
+        await flagReadingConflict(context, submission.assessmentId, submissionId, reading ? "not_attempted" : "missing");
+        return null;
+      }
 
       const correction = await correctStructuredQuestion({
         questionId: context.questionId,
@@ -309,9 +350,16 @@ export async function runStructuredCorrectionForSubmission(submissionId: string)
     sourcePages: context.sourcePages,
   }));
 
+  // The total drawn on the paper is out of the WHOLE paper's marks. Summing
+  // only the questions corrected here made an unanswered question vanish from
+  // the denominator — "13/14" on the page for a paper worth 16.
+  const allQuestions = await prisma.question.findMany({
+    where: { assessmentId: submission.assessmentId },
+    select: { maximumMarks: true },
+  });
   const total = {
     awarded: annotatableQuestions.reduce((sum, question) => sum + question.awardedMarks, 0),
-    maximum: annotatableQuestions.reduce((sum, question) => sum + question.maximumMarks, 0),
+    maximum: allQuestions.reduce((sum, question) => sum + Number(question.maximumMarks), 0),
   };
 
   // Best-effort: the marks and written feedback are already saved above, so a

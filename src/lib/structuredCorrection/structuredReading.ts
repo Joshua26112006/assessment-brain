@@ -243,7 +243,12 @@ export async function readStructuredAnswers(
 
   const result = new Map<number, ReconciledReading>();
   for (const [questionNumber, entry] of reconciled) {
-    result.set(questionNumber, toReconciledReading(questionNumber, entry));
+    // Whichever pass was NOT kept, so the comparison can require both passes
+    // to have read a value the same way before treating it as the student's.
+    const a = readingsA.get(questionNumber);
+    const b = readingsB.get(questionNumber);
+    const other = entry.value === a ? b : a;
+    result.set(questionNumber, toReconciledReading(questionNumber, entry, other ?? null));
   }
   return result;
 }
@@ -251,9 +256,11 @@ export async function readStructuredAnswers(
 function toReconciledReading(
   questionNumber: number,
   entry: ReconciledEntry<SinglePassReading>,
+  other: SinglePassReading | null,
 ): ReconciledReading {
   const { value } = entry;
   return {
+    secondPass: other ? { variables: other.variables, studentAnswer: other.studentAnswer } : null,
     questionNumber,
     transcription: value.transcription,
     attempted: value.attempted,

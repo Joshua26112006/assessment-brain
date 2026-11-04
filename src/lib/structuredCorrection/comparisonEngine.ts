@@ -1,3 +1,4 @@
+import { parseNumericExpression } from "@/lib/structuredCorrection/numericExpression";
 import type {
   ComparisonError,
   ComparisonErrorType,
@@ -34,8 +35,31 @@ const TOLERANCE_FLOOR = 0.01;
 /** Relative component, so large values aren't failed by harmless rounding. */
 const TOLERANCE_RELATIVE = 0.005;
 
+/**
+ * For small values the absolute floor shrinks to this fraction of the value.
+ * A flat 0.01 floor made 0.002 and 0.008 "equal" — concentrations, charges and
+ * wavelengths routinely live below it. Values of 0.2 and above are unaffected.
+ */
+const SMALL_VALUE_RELATIVE_FLOOR = 0.05;
+
 export function numericTolerance(expected: number): number {
-  return Math.max(TOLERANCE_FLOOR, Math.abs(expected) * TOLERANCE_RELATIVE);
+  const magnitude = Math.abs(expected);
+  const floor = Math.max(Math.min(TOLERANCE_FLOOR, magnitude * SMALL_VALUE_RELATIVE_FLOOR), 1e-12);
+  return Math.max(floor, magnitude * TOLERANCE_RELATIVE);
+}
+
+/**
+ * True when two values differ by an exact power of ten AND the student wrote a
+ * unit. That is the signature of the same quantity in another unit — 2000 mg
+ * for 2 g, 250 mL for 0.25 L — which a rubric stored without units cannot tell
+ * apart from a genuine slip, so no claim is made either way.
+ */
+function possibleUnitConversion(expected: number, actual: ExtractedValue): boolean {
+  if (actual.parsed === null || expected === 0 || actual.parsed === 0) return false;
+  if (!/[A-Za-zΩµμ°]/.test(actual.raw.replace(/^[^=]*=/, "").replace(/[eE][+-]?\d/g, ""))) return false;
+  const exponent = Math.log10(Math.abs(actual.parsed / expected));
+  const nearest = Math.round(exponent);
+  return nearest !== 0 && Math.abs(nearest) <= 9 && Math.abs(exponent - nearest) < 1e-6;
 }
 
 const SUBSCRIPT_DIGITS = "₀₁₂₃₄₅₆₇₈₉";
@@ -51,7 +75,7 @@ const SUPERSCRIPT_DIGITS = "⁰¹²³⁴⁵⁶⁷⁸⁹";
  * collapse f₀, f₁ and f₂ into a single name "f", silently matching a
  * student's value for one quantity against the rubric's value for another.
  */
-function normalizeVariableName(name: string): string {
+function foldVariableName(name: string): string {
   let folded = "";
   for (const char of name) {
     const subscriptIndex = SUBSCRIPT_DIGITS.indexOf(char);
@@ -60,7 +84,146 @@ function normalizeVariableName(name: string): string {
     else if (superscriptIndex >= 0) folded += String(superscriptIndex);
     else folded += char;
   }
-  return folded.toLowerCase().replace(/[^a-z0-9]/g, "");
+  return folded.replace(/[^A-Za-z0-9]/g, "");
+}
+
+/**
+ * Case is kept for the exact key because in science it carries meaning: M is
+ * molar mass or molarity and m is mass, V is voltage or volume and v is
+ * velocity, T is period or temperature and t is time. The case-insensitive key
+ * is a fallback that only ever establishes PRESENCE, never a mismatch — see
+ * lookupStudentValue.
+ */
+function exactVariableKey(name: string): string {
+  return foldVariableName(name);
+}
+
+function looseVariableKey(name: string): string {
+  return foldVariableName(name).toLowerCase();
+}
+
+interface StudentValueIndex {
+  exact: Map<string, ExtractedValue>;
+  /** Null marks a loose key two different student names collapse onto, which therefore identifies nothing. */
+  loose: Map<string, ExtractedValue | null>;
+}
+
+function indexStudentValues(variables: Record<string, ExtractedValue>): StudentValueIndex {
+  const exact = new Map<string, ExtractedValue>();
+  const loose = new Map<string, ExtractedValue | null>();
+  for (const [name, value] of Object.entries(variables)) {
+    exact.set(exactVariableKey(name), value);
+    const key = looseVariableKey(name);
+    loose.set(key, loose.has(key) ? null : value);
+  }
+  return { exact, loose };
+}
+
+function lookupStudentValue(
+  index: StudentValueIndex,
+  name: string,
+): { value: ExtractedValue; exact: boolean } | null {
+  const exact = index.exact.get(exactVariableKey(name));
+  if (exact) return { value: exact, exact: true };
+  const loose = index.loose.get(looseVariableKey(name));
+  return loose ? { value: loose, exact: false } : null;
+}
+
+/**
+ * Decimal places the student stated for this value ("2.5" -> 1, "34" -> 0),
+ * taken from the literal in their raw text that IS the value. Null when no
+ * single literal equals it (an expression like "20/8"), so no rounding
+ * allowance is inferred from text that doesn't state one.
+ */
+function statedDecimalPlaces(value: ExtractedValue): number | null {
+  if (value.parsed === null) return null;
+  const literals = value.raw.match(/\d+(?:\.\d+)?/g) ?? [];
+  for (const literal of literals) {
+    if (Math.abs(Number(literal) - Math.abs(value.parsed)) <= 1e-12 * Math.max(1, Math.abs(value.parsed))) {
+      const dot = literal.indexOf(".");
+      return dot === -1 ? 0 : literal.length - dot - 1;
+    }
+  }
+  return null;
+}
+
+/**
+ * Whether `actual` is `expected`, allowing for the student having rounded it.
+ *
+ * Beyond the fixed tolerance, a value given to d decimal places (d >= 1) is
+ * accepted when it is the expected value correctly rounded to d places —
+ * "2.4" for 2.449, "0.33" for 1/3 — because the fixed tolerance alone told a
+ * student who rounded sensibly that their answer was wrong. Whole-number
+ * answers get no such allowance: "2" is not a rounding of 2.45 that a marker
+ * would accept without being told to round.
+ */
+function matchesExpected(expected: number, actual: ExtractedValue): boolean {
+  if (actual.parsed === null) return false;
+  if (Math.abs(actual.parsed - expected) <= numericTolerance(expected)) return true;
+  const places = statedDecimalPlaces(actual);
+  if (places === null || places < 1) return false;
+  return Math.abs(actual.parsed - expected) <= 0.5 * 10 ** -places + 1e-12;
+}
+
+/**
+ * Every number that appears anywhere in the student's written working for
+ * this question — bare literals, simple fractions, and each "="-separated
+ * segment evaluated whole. Used only to SUPPRESS a missing-value finding: a
+ * student who wrote "W = 2 x 10 x 5" used m = 2, g = 10 and h = 5 without
+ * naming them, and must not be told they left them out.
+ */
+function numbersInWorking(reading: ReconciledReading): number[] {
+  const texts = [
+    reading.transcription,
+    ...reading.steps,
+    ...Object.values(reading.variables).map((value) => value.raw),
+    reading.studentAnswer?.raw ?? "",
+  ];
+  const numbers: number[] = [];
+  for (const text of texts) {
+    for (const literal of text.match(/\d+(?:\.\d+)?/g) ?? []) numbers.push(Number(literal));
+    for (const fraction of text.matchAll(/(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)/g)) {
+      const denominator = Number(fraction[2]);
+      if (denominator !== 0) numbers.push(Number(fraction[1]) / denominator);
+    }
+    for (const line of text.split(/\n/)) {
+      for (const segment of line.split("=")) {
+        const value = parseNumericExpression(segment);
+        if (value !== null) numbers.push(value);
+      }
+    }
+  }
+  return numbers;
+}
+
+function appearsInWorking(expected: ExtractedValue, workingNumbers: number[]): boolean {
+  if (expected.parsed === null) return false;
+  const target = Math.abs(expected.parsed);
+  return workingNumbers.some((number) => Math.abs(Math.abs(number) - target) <= numericTolerance(target));
+}
+
+/**
+ * Whether the other reading pass read this same value. Undefined secondPass
+ * means the caller recorded none, which keeps the previous behaviour.
+ */
+function confirmedBySecondPass(
+  reading: ReconciledReading,
+  value: ExtractedValue,
+  other: ExtractedValue | null | undefined,
+): boolean {
+  if (reading.secondPass === undefined) return true;
+  if (!other) return false;
+  if (value.parsed !== null && other.parsed !== null) {
+    return Math.abs(value.parsed - other.parsed) <= numericTolerance(value.parsed);
+  }
+  return value.raw.trim().toLowerCase() === other.raw.trim().toLowerCase();
+}
+
+function secondPassVariable(reading: ReconciledReading, name: string): ExtractedValue | null | undefined {
+  if (reading.secondPass === undefined) return undefined;
+  if (reading.secondPass === null) return null;
+  const found = lookupStudentValue(indexStudentValues(reading.secondPass.variables), name);
+  return found ? found.value : null;
 }
 
 type PendingError = Omit<ComparisonError, "id" | "variable" | "dependsOn">;
@@ -81,11 +244,12 @@ function compareValue(
   if (expected.parsed === null || actual.parsed === null) return null;
 
   const tolerance = numericTolerance(expected.parsed);
-  if (Math.abs(actual.parsed - expected.parsed) <= tolerance) return null;
+  if (matchesExpected(expected.parsed, actual)) return null;
+  if (possibleUnitConversion(expected.parsed, actual)) return null;
 
   // Right magnitude, wrong sign is a specific, recognisable slip worth naming
   // rather than reporting as an arbitrary wrong value.
-  if (Math.abs(actual.parsed + expected.parsed) <= tolerance) {
+  if (matchesExpected(-expected.parsed, actual)) {
     return { type: "SIGN_ERROR", expected, actual, comparisonMethod: "sign_check" };
   }
 
@@ -101,7 +265,7 @@ function compareValue(
 function valuesMatchNumerically(expected: ExtractedValue | null, actual: ExtractedValue | null): boolean {
   if (!expected || !actual) return false;
   if (expected.parsed === null || actual.parsed === null) return false;
-  return Math.abs(actual.parsed - expected.parsed) <= numericTolerance(expected.parsed);
+  return matchesExpected(expected.parsed, actual);
 }
 
 interface ApproachComparison {
@@ -119,10 +283,8 @@ function compareAgainstApproach(
 ): ApproachComparison {
   const errors: ComparisonError[] = [];
 
-  const studentByName = new Map<string, ExtractedValue>();
-  for (const [name, value] of Object.entries(reading.variables)) {
-    studentByName.set(normalizeVariableName(name), value);
-  }
+  const studentValues = indexStudentValues(reading.variables);
+  const workingNumbers = numbersInWorking(reading);
 
   let matchedVariableCount = 0;
   const expectedEntries = Object.entries(approach.variables);
@@ -135,11 +297,37 @@ function compareAgainstApproach(
   // who scored full marks that they had left out a value they plainly wrote.
   const reachedCorrectAnswer = valuesMatchNumerically(correctAnswer, reading.studentAnswer);
 
-  for (const [expectedName, expectedValue] of expectedEntries) {
-    const studentValue = studentByName.get(normalizeVariableName(expectedName));
+  const otherPassAnswer =
+    reading.secondPass === undefined ? undefined : (reading.secondPass?.studentAnswer ?? null);
+  const answerConfirmed =
+    !!reading.studentAnswer && confirmedBySecondPass(reading, reading.studentAnswer, otherPassAnswer);
 
-    if (!studentValue) {
-      if (!reachedCorrectAnswer) {
+  // Absence of a value is only evidence of a skipped step when the student's
+  // final answer is KNOWN to be wrong, or they gave none. If their answer
+  // can't be evaluated ("50%", "x = 2 or 3"), or the two reads disagree about
+  // it, they may well have reached the right answer — and then a "missing"
+  // value is our reader missing it.
+  const finalAnswerKnownWrong =
+    !reading.studentAnswer ||
+    (answerConfirmed && reading.studentAnswer.parsed !== null && !reachedCorrectAnswer &&
+      !(correctAnswer?.parsed != null && possibleUnitConversion(correctAnswer.parsed, reading.studentAnswer)));
+
+  for (const [expectedName, expectedValue] of expectedEntries) {
+    const found = lookupStudentValue(studentValues, expectedName);
+
+    if (!found) {
+      // Absence is only evidence when nothing else explains it. Each of these
+      // does: the student reached the right answer; the other reading pass DID
+      // find this value (so it is our reader that disagrees, not the student);
+      // only one pass ran, so nothing could be cross-checked; or the value is
+      // plainly in their working, just not given a name.
+      const otherPassValue = secondPassVariable(reading, expectedName);
+      const explainedAway =
+        !finalAnswerKnownWrong ||
+        (otherPassValue !== undefined && otherPassValue !== null) ||
+        reading.secondPass === null ||
+        appearsInWorking(expectedValue, workingNumbers);
+      if (!explainedAway) {
         errors.push({
           id: nextErrorId(),
           type: "MISSING_STEP",
@@ -153,7 +341,13 @@ function compareAgainstApproach(
     }
 
     matchedVariableCount++;
-    const mismatch = compareValue(expectedValue, studentValue, "WRONG_SUBSTITUTION");
+    // A wrong value is only claimed when the names match exactly (case
+    // included) and both reading passes saw the same value. A case-only match
+    // (m vs M) may be a different quantity, and a value the two passes read
+    // differently may be our misreading — either way, not a student's mistake.
+    if (!found.exact) continue;
+    if (!confirmedBySecondPass(reading, found.value, secondPassVariable(reading, expectedName))) continue;
+    const mismatch = compareValue(expectedValue, found.value, "WRONG_SUBSTITUTION");
     if (mismatch) {
       errors.push({ id: nextErrorId(), variable: expectedName, ...mismatch, dependsOn: [] });
     }
@@ -163,7 +357,7 @@ function compareAgainstApproach(
   // errors found above. A wrong final value that a wrong input already
   // explains is a consequence, not a second independent mistake — saying
   // otherwise would tell a student they made two errors when they made one.
-  if (correctAnswer && reading.studentAnswer) {
+  if (correctAnswer && reading.studentAnswer && answerConfirmed) {
     const substitutionErrorIds = errors.filter((error) => error.type === "WRONG_SUBSTITUTION").map((error) => error.id);
     const isConsequence = substitutionErrorIds.length > 0;
     const mismatch = compareValue(
@@ -214,6 +408,18 @@ export function compareReadingToRubric(
   if (!expectation.solvable) return empty("skipped_unsolvable");
   // Nothing written is a scoring outcome, not a set of mistakes to point at.
   if (!reading.attempted) return empty("skipped_not_attempted");
+  // Without a numeric final answer nothing can be compared numerically, and
+  // the only finding left — a "missing" value — would be inferred against an
+  // answer we cannot evaluate (a balanced equation, a name, a sentence). That
+  // told a student who scored 4/4 that they had "missed step a".
+  if (!expectation.correctAnswer || expectation.correctAnswer.parsed === null) {
+    return empty("skipped_not_numeric");
+  }
+  // A reading the model itself was unsure of, or that the two passes largely
+  // disagreed on, is too weak a footing for any claim about the student.
+  if (reading.structureConfidence === "low" || reading.agreementConfidence === "low") {
+    return empty("skipped_low_confidence");
+  }
 
   // Error ids are generated per call rather than from module state: questions
   // are compared concurrently, and a shared counter would hand two questions
