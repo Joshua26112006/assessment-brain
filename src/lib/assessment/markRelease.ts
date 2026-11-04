@@ -14,6 +14,7 @@ import {
 import { ACTIONABLE_REVIEW_STATUSES } from "@/lib/review-scope";
 import { REVIEW_DECISION_CONTRACT_VERSION, type ReviewDecisionRecord } from "@/types/review";
 import type { GradingResult } from "@/types/pipeline";
+import type { StoredFinding } from "@/types/structuredCorrection";
 
 /**
  * Everything a teacher does to a submission's marks between "the AI drafted
@@ -72,8 +73,35 @@ export interface ReviewAnswerRow {
     annotationResult: unknown;
     correctionResult: unknown;
     awardedMarks: number | null;
+    /** Pages the answer was read from, used to place the marks on the right page. */
+    sourcePages: number[];
+    /** The AI's suggested findings, each marked kept or not by the teacher (none are kept until they say so). */
+    findings: Array<StoredFinding & { kept: boolean }>;
   } | null;
   attention: AnswerAttention;
+}
+
+/** Findings stored with a response's correction, or none for an older or non-structured result. */
+export function storedFindingsOf(correctionResult: unknown): StoredFinding[] {
+  if (typeof correctionResult !== "object" || correctionResult === null) return [];
+  const list = (correctionResult as { findings?: unknown }).findings;
+  if (!Array.isArray(list)) return [];
+  return list.filter(
+    (item): item is StoredFinding =>
+      typeof item === "object" && item !== null && typeof (item as StoredFinding).id === "string" &&
+      typeof (item as StoredFinding).explanation === "string",
+  );
+}
+
+function keptFindingIds(annotationResult: unknown): Set<string> {
+  const kept = parseAnnotationResult(annotationResult)?.teacherFindings?.keptIds;
+  return new Set(Array.isArray(kept) ? kept.filter((id): id is string => typeof id === "string") : []);
+}
+
+function sourcePagesOf(studentAnswer: unknown): number[] {
+  if (typeof studentAnswer !== "object" || studentAnswer === null) return [];
+  const pages = (studentAnswer as { sourcePages?: unknown }).sourcePages;
+  return Array.isArray(pages) ? pages.filter((page): page is number => typeof page === "number") : [];
 }
 
 function studentAnswerText(studentAnswer: unknown): string {
@@ -160,6 +188,11 @@ export async function loadSubmissionReview(
         annotationResult: response.annotationResult,
         correctionResult: response.correctionResult,
         awardedMarks: parseGradingResult(response.gradingResult)?.awardedMarks ?? null,
+        sourcePages: sourcePagesOf(response.studentAnswer),
+        findings: (() => {
+          const kept = keptFindingIds(response.annotationResult);
+          return storedFindingsOf(response.correctionResult).map((finding) => ({ ...finding, kept: kept.has(finding.id) }));
+        })(),
       },
       attention,
     };
@@ -177,6 +210,7 @@ async function writeMarkEvent(
       | "TEACHER_ACCEPT"
       | "TEACHER_CHANGE"
       | "TEACHER_COMMENT"
+      | "TEACHER_FINDING"
       | "SUBMISSION_CONFIRMED"
       | "SUBMISSION_RELEASED"
       | "SUBMISSION_REOPENED";
@@ -461,6 +495,67 @@ export async function setComment(input: {
   });
 }
 
+/**
+ * Keeps or removes one of the AI's suggested findings (decision D5). Only kept
+ * findings are drawn on the student's marked copy; none is kept by default.
+ */
+export async function setFindingKept(input: {
+  teacherId: string;
+  responseId: string;
+  findingId: string;
+  kept: boolean;
+}): Promise<{ ok: true } | MarkActionFailure> {
+  return prisma.$transaction(async (tx): Promise<{ ok: true } | MarkActionFailure> => {
+    const response = await tx.questionResponse.findFirst({
+      where: { id: input.responseId, submission: { assessment: { teacherId: input.teacherId } } },
+      select: {
+        id: true,
+        submissionId: true,
+        annotationResult: true,
+        correctionResult: true,
+        submission: { select: { confirmedAt: true } },
+      },
+    });
+    if (!response) return notFound();
+    if (response.submission.confirmedAt) return locked();
+
+    // The id must be one of this answer's own findings: a forged id cannot add anything.
+    const finding = storedFindingsOf(response.correctionResult).find((candidate) => candidate.id === input.findingId);
+    if (!finding) return { ok: false, code: "NOT_FOUND", message: "Finding not found." };
+
+    const kept = keptFindingIds(response.annotationResult);
+    if (kept.has(finding.id) === input.kept) return { ok: true };
+    if (input.kept) kept.add(finding.id);
+    else kept.delete(finding.id);
+
+    const decidedAt = new Date().toISOString();
+    const parsed = parseAnnotationResult(response.annotationResult);
+    const base =
+      parsed ??
+      ({
+        ...stageResultBase("ANNOTATION", ["No pipeline annotation existed for this response; this record was created by teacher review."]),
+        entries: [],
+        needsHumanReview: false,
+      } as const);
+    const next = { ...base, teacherFindings: { keptIds: [...kept], decidedAt, reviewerId: input.teacherId } };
+
+    const updated = await tx.questionResponse.updateMany({
+      where: { id: response.id, submission: { confirmedAt: null } },
+      data: { annotationResult: next as unknown as object },
+    });
+    if (updated.count === 0) return locked();
+
+    await writeMarkEvent(tx, {
+      kind: "TEACHER_FINDING",
+      submissionId: response.submissionId,
+      questionResponseId: response.id,
+      actorId: input.teacherId,
+      payload: { findingId: finding.id, kept: input.kept, type: finding.type, wrongText: finding.wrongText },
+    });
+    return { ok: true };
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Whole-submission actions
 // ---------------------------------------------------------------------------
@@ -631,6 +726,15 @@ export async function releaseSubmission(input: { teacherId: string; submissionId
       data: { releasedAt: new Date(), releasedById: input.teacherId },
     });
     if (updated.count === 0) return { ok: true, alreadyReleased: true };
+
+    // Any marked-up copy that exists now was drawn before the teacher settled
+    // the marks. It is cleared in the same transaction as the release, so there
+    // is no moment at which a student could be shown it; a fresh one is drawn
+    // from the final marks straight afterwards (markedCopy.ts).
+    await tx.answerSheetPage.updateMany({
+      where: { submissionId: submission.id, annotatedStorageKey: { not: null } },
+      data: { annotatedStorageKey: null },
+    });
 
     await writeMarkEvent(tx, { kind: "SUBMISSION_RELEASED", submissionId: submission.id, actorId: input.teacherId });
     return { ok: true, alreadyReleased: false };

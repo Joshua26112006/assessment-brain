@@ -346,6 +346,12 @@ export interface AnnotationResult extends PipelineStageResultBase<"ANNOTATION"> 
    * aiAnnotation above, so resolving a review never destroys AI evidence.
    */
   teacherFeedback?: TeacherFeedbackNote | null;
+  /**
+   * Which of the AI's suggested findings (stored in correctionResult.findings)
+   * the teacher chose to keep. Only kept findings are drawn on the student's
+   * marked copy; absent means the teacher has kept none.
+   */
+  teacherFindings?: { keptIds: string[]; decidedAt: ISODateString; reviewerId: TeacherId } | null;
 }
 
 /** A teacher's own words for the student, attached during human review. */

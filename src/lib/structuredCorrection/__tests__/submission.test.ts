@@ -19,6 +19,7 @@ import { createReviewItemIfNeeded } from "@/lib/assessment/pipelineReviewItems";
 import { loadOrderedAnswerSheetPages } from "@/lib/handwritten/pages";
 import { readStructuredAnswers } from "@/lib/structuredCorrection/structuredReading";
 import { correctStructuredQuestion } from "@/lib/structuredCorrection/pipeline";
+import { annotateAnswerSheet } from "@/lib/structuredCorrection/annotation";
 import { runStructuredCorrectionForSubmission } from "@/lib/structuredCorrection/submission";
 import type { ReconciledReading } from "@/types/structuredCorrection";
 
@@ -27,6 +28,7 @@ const flagForTeacher = vi.mocked(createReviewItemIfNeeded);
 const loadPages = vi.mocked(loadOrderedAnswerSheetPages);
 const readSheet = vi.mocked(readStructuredAnswers);
 const correct = vi.mocked(correctStructuredQuestion);
+const drawOnPages = vi.mocked(annotateAnswerSheet);
 
 const SUBMISSION = "sub1";
 
@@ -193,3 +195,58 @@ describe("runStructuredCorrectionForSubmission — nothing is ever left pending 
     expect(flagForTeacher).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("runStructuredCorrectionForSubmission — what a teacher gets to review", () => {
+  const explanation = {
+    errorId: "err_0",
+    explanationType: "root_arithmetic_error" as const,
+    explanation: "Here the value should be 100, but you wrote 120 J.",
+    wrongText: "120 J",
+    correctVersion: "100",
+  };
+
+  function markedWithFinding(input: Parameters<typeof correctStructuredQuestion>[0]) {
+    return {
+      questionId: input.questionId,
+      questionNumber: input.questionNumber,
+      reading: input.reading,
+      score: { awardedMarks: 2, maximumMarks: 4, feedback: "ok" },
+      comparison: { status: "compared" as const, matchedApproachLabel: null, errors: [], matchedVariableCount: 0, totalExpectedVariableCount: 0 },
+      verification: null,
+      explanations: [explanation],
+      mistakesWithheld: false,
+    };
+  }
+
+  it("stores each finding so the teacher can keep or remove it", async () => {
+    setUpSubmission([1]);
+    readSheet.mockResolvedValue(new Map([[1, reading(1)]]));
+    correct.mockImplementation(async (input) => markedWithFinding(input));
+
+    await runStructuredCorrectionForSubmission(SUBMISSION);
+
+    const graded = db.questionResponse.update.mock.calls.find(([args]) => (args.data as { status?: string }).status === "GRADED");
+    const stored = (graded![0].data as { correctionResult: { findings: unknown[] } }).correctionResult;
+    expect(stored.findings).toEqual([
+      {
+        id: "err_0",
+        type: "root_arithmetic_error",
+        explanation: "Here the value should be 100, but you wrote 120 J.",
+        wrongText: "120 J",
+        correctVersion: "100",
+      },
+    ]);
+  });
+
+  it("draws nothing on the student's pages — that happens at release, from the teacher's final marks", async () => {
+    setUpSubmission([1, 2]);
+    readSheet.mockResolvedValue(new Map([[1, reading(1)], [2, reading(2)]]));
+    correct.mockImplementation(async (input) => markedWithFinding(input));
+
+    await runStructuredCorrectionForSubmission(SUBMISSION);
+
+    expect(correct).toHaveBeenCalledTimes(2);
+    expect(drawOnPages).not.toHaveBeenCalled();
+  });
+});
+

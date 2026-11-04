@@ -9,6 +9,7 @@ import { PageHeader, Card, Section, ScoreDisplay } from "@/components/ui/Page";
 import StatusBadge, { type BadgeTone } from "@/components/ui/StatusBadge";
 import AnswerReviewForm from "./AnswerReviewForm";
 import SubmissionControls, { type SubmissionStage } from "./SubmissionControls";
+import FindingToggle from "./FindingToggle";
 
 export const metadata = { title: "Review marks" };
 
@@ -256,6 +257,31 @@ function AnswerCard({ row, submissionId, locked }: { row: ReviewAnswerRow; submi
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wide text-muted">Why it was marked this way (AI draft)</p>
                 <p className="mt-1.5 text-sm leading-relaxed text-muted">{aiFeedback}</p>
+              </div>
+            )}
+
+            {response.findings.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted">
+                  Possible mistakes the AI found
+                </p>
+                <p className="mt-1 text-xs text-subtle">
+                  These are suggestions. Only the ones you keep are circled on the student&apos;s marked copy.
+                </p>
+                <ul className="mt-2 flex flex-col gap-2">
+                  {response.findings.map((finding) => (
+                    <FindingToggle
+                      key={finding.id}
+                      submissionId={submissionId}
+                      responseId={response.id}
+                      findingId={finding.id}
+                      explanation={finding.explanation}
+                      wrongText={finding.wrongText}
+                      kept={finding.kept}
+                      locked={locked}
+                    />
+                  ))}
+                </ul>
               </div>
             )}
 

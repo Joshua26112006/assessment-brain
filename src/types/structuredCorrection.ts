@@ -241,6 +241,21 @@ export interface ErrorExplanation {
   correctVersion?: string;
 }
 
+/**
+ * One finding as stored with a response, so a teacher can review it later. The
+ * ids are the comparison's error ids, unique within one question. A finding is
+ * only a SUGGESTION until a teacher keeps it (decision D5): the marked copy a
+ * student receives shows only the findings that were kept.
+ */
+export interface StoredFinding {
+  id: string;
+  type: ExplanationType;
+  explanation: string;
+  /** The student's own value, verbatim — what the marked copy circles. Null for a missing step. */
+  wrongText: string | null;
+  correctVersion: string | null;
+}
+
 /** `blocked` means verification did not pass, so nothing was written at all. */
 export type ExplanationStatus = "generated" | "blocked";
 

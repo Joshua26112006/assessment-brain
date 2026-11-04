@@ -16,6 +16,7 @@ interface Db {
   responses: any[];
   reviewItems: any[];
   events: any[];
+  pages: any[];
 }
 
 let db: Db;
@@ -91,6 +92,13 @@ const fake: any = {
       return { count: matches.length };
     },
   },
+  answerSheetPage: {
+    async updateMany({ where, data }: any) {
+      const matches = db.pages.filter((p) => p.submissionId === where.submissionId && p.annotatedStorageKey !== null);
+      matches.forEach((p) => Object.assign(p, data));
+      return { count: matches.length };
+    },
+  },
   markEvent: {
     async create({ data }: any) {
       db.events.push({ id: `e${nextId++}`, createdAt: new Date(), ...data });
@@ -111,6 +119,7 @@ import {
   releaseSubmission,
   reopenSubmission,
   setComment,
+  setFindingKept,
 } from "@/lib/assessment/markRelease";
 
 // ---------------------------------------------------------------------------
@@ -149,6 +158,10 @@ function seed(responses: Array<Partial<any> & { questionId: string }>, submissio
     })),
     reviewItems: [],
     events: [],
+    pages: [
+      { id: "p1", submissionId: "sub1", pageNumber: 1, annotatedStorageKey: "sub1/annotated-1-old.jpg" },
+      { id: "p2", submissionId: "sub1", pageNumber: 2, annotatedStorageKey: null },
+    ],
   };
 }
 
@@ -281,6 +294,68 @@ describe("setComment", () => {
   it("refuses once confirmed", async () => {
     db.submissions[0].confirmedAt = new Date();
     expect(await setComment({ teacherId: TEACHER, responseId: "r1", note: "x" })).toMatchObject({ code: "LOCKED" });
+  });
+});
+
+const FINDINGS = [
+  { id: "err_0", type: "root_arithmetic_error", explanation: "Check this part.", wrongText: "120 J", correctVersion: "100" },
+  { id: "err_1", type: "root_missing_step", explanation: "Not shown.", wrongText: null, correctVersion: null },
+];
+
+describe("setFindingKept — only findings a teacher keeps reach the student's copy", () => {
+  beforeEach(() => {
+    seed([{ questionId: "q1", correctionResult: { ...confidentReading, findings: FINDINGS } }]);
+  });
+
+  it("keeps nothing by default", async () => {
+    const rows = await loadSubmissionReview(fake, "sub1", "a1");
+    expect(rows[0].response?.findings.map((f) => [f.id, f.kept])).toEqual([["err_0", false], ["err_1", false]]);
+  });
+
+  it("keeps and removes a finding, with an audit row each time", async () => {
+    expect(await setFindingKept({ teacherId: TEACHER, responseId: "r1", findingId: "err_0", kept: true })).toEqual({ ok: true });
+    let rows = await loadSubmissionReview(fake, "sub1", "a1");
+    expect(rows[0].response?.findings.map((f) => f.kept)).toEqual([true, false]);
+    expect(response("r1").annotationResult.teacherFindings).toMatchObject({ keptIds: ["err_0"], reviewerId: TEACHER });
+
+    await setFindingKept({ teacherId: TEACHER, responseId: "r1", findingId: "err_0", kept: false });
+    rows = await loadSubmissionReview(fake, "sub1", "a1");
+    expect(rows[0].response?.findings.map((f) => f.kept)).toEqual([false, false]);
+
+    expect(db.events.map((e) => [e.kind, e.payload.findingId, e.payload.kept])).toEqual([
+      ["TEACHER_FINDING", "err_0", true],
+      ["TEACHER_FINDING", "err_0", false],
+    ]);
+  });
+
+  it("does nothing, and writes nothing, when the choice is unchanged", async () => {
+    await setFindingKept({ teacherId: TEACHER, responseId: "r1", findingId: "err_0", kept: false });
+    expect(db.events).toHaveLength(0);
+  });
+
+  it("does not disturb the AI's evidence or the teacher's comment", async () => {
+    await setComment({ teacherId: TEACHER, responseId: "r1", note: "Careful with units." });
+    await setFindingKept({ teacherId: TEACHER, responseId: "r1", findingId: "err_1", kept: true });
+    expect(response("r1").annotationResult.teacherFeedback.note).toBe("Careful with units.");
+    expect(response("r1").correctionResult.findings).toEqual(FINDINGS);
+  });
+
+  it("rejects an id that is not one of this answer's findings", async () => {
+    const result = await setFindingKept({ teacherId: TEACHER, responseId: "r1", findingId: "err_99", kept: true });
+    expect(result).toMatchObject({ ok: false, code: "NOT_FOUND" });
+    expect(response("r1").annotationResult).toBeNull();
+  });
+
+  it("refuses for another teacher and once confirmed", async () => {
+    expect(await setFindingKept({ teacherId: OTHER_TEACHER, responseId: "r1", findingId: "err_0", kept: true })).toMatchObject({ code: "NOT_FOUND" });
+    db.submissions[0].confirmedAt = new Date();
+    expect(await setFindingKept({ teacherId: TEACHER, responseId: "r1", findingId: "err_0", kept: true })).toMatchObject({ code: "LOCKED" });
+  });
+
+  it("reports no findings for an answer that has none stored (older results)", async () => {
+    seed([{ questionId: "q1" }]);
+    const rows = await loadSubmissionReview(fake, "sub1", "a1");
+    expect(rows[0].response?.findings).toEqual([]);
   });
 });
 
@@ -420,6 +495,21 @@ describe("releaseSubmission", () => {
     db.submissions[0].confirmedAt = new Date();
     expect(await releaseSubmission({ teacherId: OTHER_TEACHER, submissionId: "sub1" })).toMatchObject({ code: "NOT_FOUND" });
     expect(db.submissions[0].releasedAt).toBeNull();
+  });
+
+  it("clears any marked-up copy drawn before the teacher settled the marks, in the same step as the release", async () => {
+    await acceptAllSure({ teacherId: TEACHER, submissionId: "sub1" });
+    await confirmSubmission({ teacherId: TEACHER, submissionId: "sub1" });
+    expect(db.pages[0].annotatedStorageKey).not.toBeNull();
+
+    await releaseSubmission({ teacherId: TEACHER, submissionId: "sub1" });
+
+    expect(db.pages.map((p) => p.annotatedStorageKey)).toEqual([null, null]);
+  });
+
+  it("leaves a marked-up copy alone when the release is refused", async () => {
+    await releaseSubmission({ teacherId: TEACHER, submissionId: "sub1" });
+    expect(db.pages[0].annotatedStorageKey).toBe("sub1/annotated-1-old.jpg");
   });
 });
 

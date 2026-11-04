@@ -10,8 +10,10 @@ import {
   releaseSubmission,
   reopenSubmission,
   setComment,
+  setFindingKept,
   type MarkActionFailure,
 } from "@/lib/assessment/markRelease";
+import { generateMarkedCopy } from "@/lib/assessment/markedCopy";
 
 export type ActionState = { error?: string; blockers?: string[]; success?: string };
 
@@ -96,6 +98,29 @@ export async function submitAnswerDecision(
   return { error: "Choose accept, change or comment." };
 }
 
+/** Keep or remove one of the AI's suggested findings. Only kept ones are drawn on the student's copy. */
+export async function submitFindingDecision(
+  submissionId: string,
+  responseId: string,
+  findingId: string,
+  _prevState: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const session = await requireTeacherSession();
+  const decision = text(formData, "decision");
+  if (decision !== "keep" && decision !== "remove") return { error: "Choose keep or remove." };
+
+  const result = await setFindingKept({
+    teacherId: session.user.id,
+    responseId,
+    findingId,
+    kept: decision === "keep",
+  });
+  if (!result.ok) return failure(result);
+  refresh(submissionId);
+  return { success: decision === "keep" ? "Kept." : "Removed." };
+}
+
 /** Accept all sure answers, confirm, release or reopen a whole submission. */
 export async function submitSubmissionDecision(
   submissionId: string,
@@ -133,8 +158,22 @@ export async function submitSubmissionDecision(
   if (decision === "release") {
     const result = await releaseSubmission({ teacherId, submissionId });
     if (!result.ok) return failure(result);
+    if (result.alreadyReleased) {
+      refresh(submissionId);
+      return { success: "Already released." };
+    }
+    // Draw the marked copy from the final marks and the findings you kept. The
+    // marks are released either way; if drawing fails the student simply sees
+    // their own unmarked pages, and you are told.
+    const copy = await generateMarkedCopy(submissionId);
     refresh(submissionId);
-    return { success: result.alreadyReleased ? "Already released." : "Released. The student can now see their marks." };
+    return {
+      success:
+        "Released. The student can now see their marks." +
+        (copy.ok && copy.failedPages === 0
+          ? ""
+          : " The marked-up copy of their pages could not be fully drawn, so they will see their own pages without marks on them."),
+    };
   }
 
   if (decision === "reopen") {

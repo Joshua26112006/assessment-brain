@@ -3,10 +3,9 @@ import { createReviewItemIfNeeded } from "@/lib/assessment/pipelineReviewItems";
 import { loadOrderedAnswerSheetPages } from "@/lib/handwritten/pages";
 import { readStructuredAnswers } from "@/lib/structuredCorrection/structuredReading";
 import { correctStructuredQuestion, type StructuredQuestionCorrection } from "@/lib/structuredCorrection/pipeline";
-import { annotateAnswerSheet, type AnnotatableQuestion } from "@/lib/structuredCorrection/annotation";
 import { PIPELINE_CONTRACT_VERSION } from "@/types/pipeline";
 import type { AnnotationResult, GradingResult } from "@/types/pipeline";
-import type { ReconciledReading, StructuredExpectation } from "@/types/structuredCorrection";
+import type { ReconciledReading, StoredFinding, StructuredExpectation } from "@/types/structuredCorrection";
 import type { RubricMarkingCheckpoint } from "@/types/rubricGeneration";
 
 /**
@@ -192,6 +191,17 @@ async function persistCorrection(
         comparison: correction.comparison,
         verificationStatus: correction.verification?.status ?? null,
         explanationCount: correction.explanations.length,
+        // Stored so a teacher can keep or remove each one (decision D5); until
+        // they do, none of them reaches the student's marked copy.
+        findings: correction.explanations.map(
+          (explanation): StoredFinding => ({
+            id: explanation.errorId,
+            type: explanation.explanationType,
+            explanation: explanation.explanation,
+            wrongText: explanation.wrongText ?? null,
+            correctVersion: explanation.correctVersion ?? null,
+          }),
+        ),
       } as unknown as object,
       // Pin the exact rubric version this was judged against, so the result
       // stays reproducible after the rubric changes — the same guarantee the
@@ -347,13 +357,10 @@ export async function runStructuredCorrectionForSubmission(submissionId: string)
       });
 
       await persistCorrection(context, correction, submission.assessmentId, submissionId);
-      return { context, correction };
+      return null;
     }),
   );
 
-  const corrected = outcomes.flatMap((outcome) =>
-    outcome.status === "fulfilled" && outcome.value ? [outcome.value] : [],
-  );
   // A question that threw has no mark and would otherwise stay pending for
   // good. outcomes[i] belongs to contexts[i].
   await Promise.all(
@@ -363,42 +370,7 @@ export async function runStructuredCorrectionForSubmission(submissionId: string)
       await flagReadingConflict(contexts[index], submission.assessmentId, submissionId, "question_failed");
     }),
   );
-  if (corrected.length === 0) return;
-
-  const annotatableQuestions: AnnotatableQuestion[] = corrected.map(({ context, correction }) => ({
-    questionNumber: context.questionNumber,
-    awardedMarks: correction.score?.awardedMarks ?? 0,
-    maximumMarks: context.maximumMarks,
-    explanations: correction.explanations,
-    sourcePages: context.sourcePages,
-  }));
-
-  // The total drawn on the paper is out of the WHOLE paper's marks. Summing
-  // only the questions corrected here made an unanswered question vanish from
-  // the denominator — "13/14" on the page for a paper worth 16.
-  const allQuestions = await prisma.question.findMany({
-    where: { assessmentId: submission.assessmentId },
-    select: { maximumMarks: true },
-  });
-  const total = {
-    awarded: annotatableQuestions.reduce((sum, question) => sum + question.awardedMarks, 0),
-    maximum: allQuestions.reduce((sum, question) => sum + Number(question.maximumMarks), 0),
-  };
-
-  // Best-effort: the marks and written feedback are already saved above, so a
-  // failure to draw on the pages must not undo any of it.
-  try {
-    await annotateAnswerSheet(
-      pages.map((page) => ({
-        pageId: page.pageId,
-        pageNumber: page.pageNumber,
-        submissionId,
-        buffer: page.buffer,
-      })),
-      annotatableQuestions,
-      total,
-    );
-  } catch (error) {
-    console.error("Answer-sheet annotation failed", error);
-  }
+  // Nothing is drawn on the pages here. The marked copy is made when a teacher releases the
+  // submission (src/lib/assessment/markedCopy.ts), from the marks they settled on and only the
+  // findings they kept — drawing it now would show the AI's marks, whatever the teacher decides.
 }
