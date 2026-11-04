@@ -2,6 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { requireStudentSession } from "@/lib/require-student";
 import { describeEvaluationProgress, summarizeSubmissionScore } from "@/lib/submission-score";
+import { isReleasedForStudent, responsesVisibleToStudent, studentFacingStatus } from "@/lib/release";
 import { PageHeader, EmptyState, ScoreDisplay } from "@/components/ui/Page";
 import StatusBadge, { submissionBadge } from "@/components/ui/StatusBadge";
 import { buttonClass } from "@/components/ui/styles";
@@ -23,7 +24,10 @@ export default async function StudentResultsPage() {
           questions: { select: { id: true, questionNumber: true, maximumMarks: true } },
         },
       },
-      questionResponses: { select: { questionId: true, status: true, gradingResult: true } },
+      // annotationResult is selected only so the release helper can strip it; it is never rendered here.
+      questionResponses: {
+        select: { questionId: true, status: true, gradingResult: true, annotationResult: true },
+      },
     },
   });
 
@@ -51,9 +55,9 @@ export default async function StudentResultsPage() {
             // can never disagree with the score shown when it's opened.
             const summary = summarizeSubmissionScore(
               submission.assessment.questions,
-              submission.questionResponses,
+              responsesVisibleToStudent(submission, submission.questionResponses),
             );
-            const badge = submissionBadge(submission.status, "student");
+            const badge = submissionBadge(studentFacingStatus(submission), "student");
 
             return (
               <li key={submission.id}>
@@ -69,7 +73,9 @@ export default async function StudentResultsPage() {
                       </div>
                       <p className="mt-1 text-sm text-muted">{submission.assessment.subject}</p>
                       <p className="mt-2 text-xs text-subtle">
-                        {describeEvaluationProgress(summary)}
+                        {isReleasedForStudent(submission)
+                          ? describeEvaluationProgress(summary)
+                          : "Your teacher is reviewing your marks."}
                       </p>
                     </div>
 

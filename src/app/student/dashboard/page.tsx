@@ -2,6 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { requireStudentSession } from "@/lib/require-student";
 import { getAvailableAssessmentsForStudent } from "@/lib/student-assessment-access";
+import { studentFacingStatus } from "@/lib/release";
 import { PageHeader, MetricCard, Section, EmptyState, Card } from "@/components/ui/Page";
 import StatusBadge, { submissionBadge } from "@/components/ui/StatusBadge";
 import { buttonClass } from "@/components/ui/styles";
@@ -14,10 +15,18 @@ export default async function StudentDashboardPage() {
     await Promise.all([
       getAvailableAssessmentsForStudent(studentId),
       prisma.submission.count({ where: { studentId, status: "DRAFT" } }),
+      // Everything not yet released counts as awaiting results, however finished the marking is.
       prisma.submission.count({
-        where: { studentId, status: { in: ["SUBMITTED", "PROCESSING", "NEEDS_REVIEW"] } },
+        where: {
+          studentId,
+          OR: [
+            { status: { in: ["SUBMITTED", "PROCESSING"] } },
+            { status: { in: ["COMPLETED", "NEEDS_REVIEW", "FAILED"] }, releasedAt: null },
+            { status: "NEEDS_REVIEW", releasedAt: { not: null } },
+          ],
+        },
       }),
-      prisma.submission.count({ where: { studentId, status: "COMPLETED" } }),
+      prisma.submission.count({ where: { studentId, status: "COMPLETED", releasedAt: { not: null } } }),
       prisma.submission.findMany({
         where: { studentId, status: { not: "DRAFT" } },
         orderBy: { submittedAt: "desc" },
@@ -25,6 +34,7 @@ export default async function StudentDashboardPage() {
         select: {
           id: true,
           status: true,
+          releasedAt: true,
           assessment: { select: { title: true } },
         },
       }),
@@ -144,7 +154,7 @@ export default async function StudentDashboardPage() {
         >
           <ul className="flex flex-col gap-2">
             {recentResults.map((submission) => {
-              const badge = submissionBadge(submission.status, "student");
+              const badge = submissionBadge(studentFacingStatus(submission), "student");
               return (
                 <li key={submission.id}>
                   <Link

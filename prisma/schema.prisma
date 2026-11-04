@@ -42,6 +42,9 @@ model User {
   classesTaught      Class[]      @relation("ClassTeacher")
   assessmentsCreated Assessment[] @relation("AssessmentTeacher")
   reviewsPerformed   ReviewItem[] @relation("ReviewItemReviewer")
+  marksConfirmed     Submission[] @relation("SubmissionConfirmer")
+  resultsReleased    Submission[] @relation("SubmissionReleaser")
+  markEvents         MarkEvent[]  @relation("MarkEventActor")
 
   // As STUDENT
   classMemberships ClassMembership[]
@@ -479,6 +482,24 @@ model Submission {
   student      User             @relation(fields: [studentId], references: [id], onDelete: Restrict)
   status       SubmissionStatus @default(DRAFT)
   submittedAt  DateTime?
+
+  /// A teacher has looked at every answer and confirmed this submission's marks
+  /// (see src/lib/assessment/markRelease.ts). Null until then. Confirmation locks
+  /// the marks: changing one afterwards means un-confirming first.
+  confirmedAt   DateTime?
+  confirmedById String?
+  confirmedBy   User?     @relation("SubmissionConfirmer", fields: [confirmedById], references: [id], onDelete: Restrict)
+
+  /// The moment this student may see their marks, feedback and marked-up pages.
+  /// Null means they may not — however finished the marking is. This is the ONLY
+  /// thing student-facing code checks (src/lib/release.ts); an AI-produced mark
+  /// never reaches a student on its own. Per submission rather than per
+  /// assessment so that a late submission can never be shown before a teacher
+  /// has confirmed it.
+  releasedAt   DateTime?
+  releasedById String?
+  releasedBy   User?     @relation("SubmissionReleaser", fields: [releasedById], references: [id], onDelete: Restrict)
+
   createdAt    DateTime         @default(now())
   updatedAt    DateTime         @updatedAt
 
@@ -486,9 +507,12 @@ model Submission {
   reviewItems           ReviewItem[]
   answerSheetPages      AnswerSheetPage[]
   handwrittenProcessing SubmissionProcessing?
+  markEvents            MarkEvent[]
 
   @@unique([assessmentId, studentId])
   @@index([status])
+  @@index([confirmedById])
+  @@index([releasedById])
 }
 
 /// One uploaded page image belonging to a student's Submission — the storage
@@ -658,11 +682,84 @@ model QuestionResponse {
 
   reviewItems             ReviewItem[]
   novelApproachCandidates NovelApproachCandidate[]
+  markEvents              MarkEvent[]
 
   @@unique([submissionId, questionId])
   @@index([questionId])
   @@index([status])
   @@index([rubricVersionUsedId])
+}
+
+// ---------------------------------------------------------------------------
+// MarkEvent
+// ---------------------------------------------------------------------------
+
+enum MarkEventKind {
+  /// The pipeline produced a mark for a response.
+  AI_DRAFT
+  /// One independent marking run (a response may have several).
+  AI_RUN
+  /// A teacher accepted the draft mark as it was.
+  TEACHER_ACCEPT
+  /// A teacher replaced the mark.
+  TEACHER_CHANGE
+  /// A teacher added or changed the comment the student will see.
+  TEACHER_COMMENT
+  /// A teacher kept, edited or deleted one AI finding.
+  TEACHER_FINDING
+  /// A teacher corrected the transcription of an answer.
+  TEACHER_TRANSCRIPTION
+  /// An approved scheme changed and the draft was recomputed.
+  SCHEME_REAPPLIED
+  /// A re-check by a different marker.
+  RECHECK
+  /// A teacher confirmed a whole submission's marks.
+  SUBMISSION_CONFIRMED
+  /// A teacher released a submission's marks to the student.
+  SUBMISSION_RELEASED
+  /// A teacher took released or confirmed marks back.
+  SUBMISSION_REOPENED
+}
+
+/// Append-only audit trail of everything that decided, or changed, a mark: who
+/// (or which model), when, from what, to what, and why. Rows are only ever
+/// inserted — the migration adds a trigger that rejects UPDATE and DELETE, so a
+/// mark's history cannot be rewritten by a bug or a script either.
+///
+/// `questionResponseId` is null for events about a whole submission (confirm,
+/// release). `submissionId` is stored on every row so a submission's complete
+/// history is one indexed query.
+model MarkEvent {
+  id   String        @id @default(cuid())
+  kind MarkEventKind
+
+  submissionId String
+  submission   Submission @relation(fields: [submissionId], references: [id], onDelete: Restrict)
+
+  questionResponseId String?
+  questionResponse   QuestionResponse? @relation(fields: [questionResponseId], references: [id], onDelete: Restrict)
+
+  /// The mark this event produced, and the one it replaced. Null when the event
+  /// is not about a mark (a comment, a confirmation).
+  marks         Decimal? @db.Decimal(6, 2)
+  previousMarks Decimal? @db.Decimal(6, 2)
+
+  /// Null for events written by the pipeline itself.
+  actorId String?
+  actor   User?   @relation("MarkEventActor", fields: [actorId], references: [id], onDelete: Restrict)
+
+  /// Why, in the teacher's words, when they gave a reason.
+  reason String? @db.Text
+
+  /// Everything else worth keeping: model id and provider fingerprint, every
+  /// run's raw marks, the findings before and after, the previous comment.
+  payload Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([submissionId, createdAt])
+  @@index([questionResponseId, createdAt])
+  @@index([actorId])
 }
 
 // ---------------------------------------------------------------------------

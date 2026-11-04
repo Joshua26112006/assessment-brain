@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireStudentApiSession } from "@/lib/api-session";
 import { findOwnedAnswerSheetPageForStudent, isAnswerSheetEditableStatus } from "@/lib/answerSheetAccess";
 import { deleteAnswerSheetPage, readAnswerSheetPageContent } from "@/lib/storage/answerSheets";
+import { mayServeAnnotatedPage } from "@/lib/release";
 
 /**
  * Secure single-page access and deletion for the owning student.
@@ -14,17 +15,26 @@ import { deleteAnswerSheetPage, readAnswerSheetPageContent } from "@/lib/storage
  */
 
 /**
- * Serves the marked-up copy when `?annotated=1` is requested and one exists,
- * falling back to the original page otherwise — a submission that was never
- * annotated, or a page the annotator could not handle, still returns the
- * student's own work rather than a 404.
+ * Serves the marked-up copy when `?annotated=1` is requested, one exists AND a
+ * teacher has released this submission, falling back to the original page
+ * otherwise — a submission that was never annotated, or a page the annotator
+ * could not handle, still returns the student's own work rather than a 404.
+ *
+ * The marked-up copy has the marks and mistakes drawn on it, so before release
+ * it is exactly as off-limits as the marks themselves: asking for it just
+ * returns the student's own unmarked page.
  */
 function resolveRequestedPage(
   request: Request,
-  page: { storageKey: string; annotatedStorageKey: string | null; mimeType: string },
+  page: {
+    storageKey: string;
+    annotatedStorageKey: string | null;
+    mimeType: string;
+    submission: { releasedAt: Date | null };
+  },
 ): { storageKey: string; mimeType: string } {
   const wantsAnnotated = new URL(request.url).searchParams.get("annotated") === "1";
-  if (wantsAnnotated && page.annotatedStorageKey) {
+  if (wantsAnnotated && page.annotatedStorageKey && mayServeAnnotatedPage(page.submission)) {
     // Annotated copies are always written as JPEG (see the annotation module).
     return { storageKey: page.annotatedStorageKey, mimeType: "image/jpeg" };
   }

@@ -4,6 +4,12 @@ import { requireStudentSession } from "@/lib/require-student";
 import { getOwnedSubmissionOrNotFound } from "@/lib/student-assessment-access";
 import { parseAnnotationResult, parseGradingResult } from "@/lib/pipeline/parseResults";
 import { describeEvaluationProgress, summarizeSubmissionScore } from "@/lib/submission-score";
+import {
+  AWAITING_RELEASE,
+  isReleasedForStudent,
+  responsesVisibleToStudent,
+  studentFacingStatus,
+} from "@/lib/release";
 import type { AnnotationResult } from "@/types/pipeline";
 import { PageHeader, Card, Section } from "@/components/ui/Page";
 import StatusBadge, { questionResponseBadge, submissionBadge } from "@/components/ui/StatusBadge";
@@ -14,6 +20,7 @@ const STATUS_COPY: Record<string, string> = {
   COMPLETED: "Marking is complete — your results are below.",
   NEEDS_REVIEW: "Your teacher is checking part of this submission before it's final.",
   FAILED: "Something went wrong while marking part of this. Your teacher has been notified.",
+  [AWAITING_RELEASE]: "Your teacher is reviewing your marks. They will appear here as soon as they are released.",
 };
 
 function getAnswerText(studentAnswer: unknown): string {
@@ -37,28 +44,31 @@ export default async function SubmissionResultPage({
   const session = await requireStudentSession();
   const submission = await getOwnedSubmissionOrNotFound(submissionId, session.user.id);
 
-  const responseByQuestionId = new Map(
-    submission.questionResponses.map((r) => [r.questionId, r]),
-  );
+  // Nothing about a mark, a finding or a marked-up page reaches the student
+  // until a teacher has released this submission (src/lib/release.ts).
+  const released = isReleasedForStudent(submission);
+  const responses = responsesVisibleToStudent(submission, submission.questionResponses);
+  const visibleStatus = studentFacingStatus(submission);
+
+  const responseByQuestionId = new Map(responses.map((r) => [r.questionId, r]));
 
   // Only pages that actually carry marks — a submission whose sheet was never
   // annotated simply doesn't show this section, rather than showing the
   // student their unmarked upload back under a "marked" heading.
-  const annotatedPages = await prisma.answerSheetPage.findMany({
-    where: { submissionId, annotatedStorageKey: { not: null } },
-    orderBy: { pageNumber: "asc" },
-    select: { id: true, pageNumber: true },
-  });
+  const annotatedPages = released
+    ? await prisma.answerSheetPage.findMany({
+        where: { submissionId, annotatedStorageKey: { not: null } },
+        orderBy: { pageNumber: "asc" },
+        select: { id: true, pageNumber: true },
+      })
+    : [];
 
   // Score is derived by the shared summarizer, so the list page, this page
   // and the teacher's submissions view can never disagree about what a
   // submission currently scores. Its rule: only fully-marked questions count;
   // everything else is reported separately, never counted as zero.
-  const summary = summarizeSubmissionScore(
-    submission.assessment.questions,
-    submission.questionResponses,
-  );
-  const badge = submissionBadge(submission.status, "student");
+  const summary = summarizeSubmissionScore(submission.assessment.questions, responses);
+  const badge = submissionBadge(visibleStatus, "student");
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -68,11 +78,20 @@ export default async function SubmissionResultPage({
           { label: submission.assessment.title },
         ]}
         title={submission.assessment.title}
-        description={STATUS_COPY[submission.status] ?? `Status: ${submission.status}`}
+        description={STATUS_COPY[visibleStatus] ?? `Status: ${visibleStatus}`}
         meta={<StatusBadge label={badge.label} tone={badge.tone} />}
       />
 
       {/* Overall score — only ever counts questions that are genuinely marked. */}
+      {!released && (
+        <Card className="mb-8">
+          <p className="text-sm text-muted">
+            Your answers are below. Marks and feedback are not shown yet — your teacher releases them
+            after checking.
+          </p>
+        </Card>
+      )}
+      {released && (
       <Card className="mb-8">
         <div className="flex flex-wrap items-end justify-between gap-6">
           <div>
@@ -127,6 +146,7 @@ export default async function SubmissionResultPage({
           </p>
         )}
       </Card>
+      )}
 
       {annotatedPages.length > 0 && (
         <Section

@@ -124,6 +124,10 @@ export function submissionBadge(
       };
     case "FAILED":
       return { label: "Evaluation failed", tone: "danger" };
+    // Not a stored status: what a student is shown while their teacher still
+    // holds the marks (see src/lib/release.ts).
+    case "AWAITING_RELEASE":
+      return { label: "With your teacher", tone: "info" };
     default:
       return { label: status, tone: "neutral" };
   }

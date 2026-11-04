@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requireStudentSession } from "@/lib/require-student";
 import { getEligibleAssessmentOrNotFound } from "@/lib/student-assessment-access";
 import { prisma } from "@/lib/prisma";
+import { studentFacingStatus } from "@/lib/release";
 import { PageHeader, Card } from "@/components/ui/Page";
 import StatusBadge, { submissionBadge } from "@/components/ui/StatusBadge";
 import { buttonClass } from "@/components/ui/styles";
@@ -17,12 +18,14 @@ export default async function StudentAssessmentDetailPage({
 
   const existingSubmission = await prisma.submission.findUnique({
     where: { assessmentId_studentId: { assessmentId: id, studentId: session.user.id } },
-    select: { id: true, status: true },
+    select: { id: true, status: true, releasedAt: true },
   });
 
   const alreadySubmitted = existingSubmission && existingSubmission.status !== "DRAFT";
   const totalMarks = assessment.questions.reduce((sum, q) => sum + Number(q.maximumMarks), 0);
-  const badge = existingSubmission ? submissionBadge(existingSubmission.status, "student") : null;
+  const badge = existingSubmission
+    ? submissionBadge(studentFacingStatus(existingSubmission), "student")
+    : null;
 
   return (
     <div className="mx-auto max-w-2xl">

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { requireStudentSession } from "@/lib/require-student";
 import { getAvailableAssessmentsForStudent } from "@/lib/student-assessment-access";
+import { studentFacingStatus } from "@/lib/release";
 import { PageHeader, EmptyState, Section } from "@/components/ui/Page";
 import StatusBadge, { submissionBadge } from "@/components/ui/StatusBadge";
 import JoinClassForm from "./JoinClassForm";
@@ -70,7 +71,7 @@ function AssessmentList({
     <ul className="grid gap-3 md:grid-cols-2">
       {assessments.map((assessment) => {
         const badge = assessment.submission
-          ? submissionBadge(assessment.submission.status, "student")
+          ? submissionBadge(studentFacingStatus(assessment.submission), "student")
           : null;
         const href =
           assessment.submission && assessment.submission.status !== "DRAFT"

@@ -44,7 +44,7 @@ export async function findOwnedAnswerSheetPageForStudent(
 ) {
   return prisma.answerSheetPage.findFirst({
     where: { id: pageId, submissionId, submission: { studentId } },
-    include: { submission: { select: { id: true, status: true } } },
+    include: { submission: { select: { id: true, status: true, releasedAt: true } } },
   });
 }
 

@@ -37,7 +37,7 @@ export async function getAvailableAssessmentsForStudent(studentId: string) {
     orderBy: { createdAt: "desc" },
     include: {
       _count: { select: { questions: true } },
-      submissions: { where: { studentId }, select: { id: true, status: true } },
+      submissions: { where: { studentId }, select: { id: true, status: true, releasedAt: true } },
     },
   });
 
