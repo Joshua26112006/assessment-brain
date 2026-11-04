@@ -3,13 +3,13 @@ import type {
   ComparisonErrorType,
   ComparisonResult,
   ExtractedValue,
-  ReconciledMathReading,
+  ReconciledReading,
   StructuredApproachExpectation,
   StructuredExpectation,
-} from "@/types/mathCorrection";
+} from "@/types/structuredCorrection";
 
 /**
- * Stage 2 of the Mathematics correction flow: decide, deterministically, where
+ * Stage 2 of the structured correction flow: decide, deterministically, where
  * a student's working diverges from what the rubric expects.
  *
  * No model, no network, no natural language — pure comparison of numbers our
@@ -112,7 +112,7 @@ interface ApproachComparison {
 }
 
 function compareAgainstApproach(
-  reading: ReconciledMathReading,
+  reading: ReconciledReading,
   approach: StructuredApproachExpectation,
   correctAnswer: ExtractedValue | null,
   nextErrorId: () => string,
@@ -199,7 +199,7 @@ function pickBestApproach(candidates: ApproachComparison[]): ApproachComparison 
 }
 
 export function compareReadingToRubric(
-  reading: ReconciledMathReading,
+  reading: ReconciledReading,
   expectation: StructuredExpectation | null,
 ): ComparisonResult {
   const empty = (status: ComparisonResult["status"]): ComparisonResult => ({

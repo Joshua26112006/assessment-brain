@@ -5,9 +5,9 @@ import {
   removeAnnotatedAnswerSheetPage,
   writeAnnotatedAnswerSheetPage,
 } from "@/lib/storage/answerSheets";
-import { analysePage, locateTextOnPage, type BBox, type QuestionMarker } from "@/lib/mathCorrection/annotation/textractPage";
-import { buildOverlaySvg, type QuestionMark } from "@/lib/mathCorrection/annotation/overlay";
-import type { ErrorExplanation } from "@/types/mathCorrection";
+import { analysePage, locateTextOnPage, type BBox, type QuestionMarker } from "@/lib/structuredCorrection/annotation/textractPage";
+import { buildOverlaySvg, type QuestionMark } from "@/lib/structuredCorrection/annotation/overlay";
+import type { ErrorExplanation } from "@/types/structuredCorrection";
 
 /**
  * Produces the marked-up copy of a student's answer sheet: ticks, awarded

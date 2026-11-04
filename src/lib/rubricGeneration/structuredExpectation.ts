@@ -1,13 +1,13 @@
-import { parseNumericExpression } from "@/lib/mathCorrection/numericExpression";
+import { parseNumericExpression } from "@/lib/structuredCorrection/numericExpression";
 import {
-  MATH_PROBLEM_TYPES,
+  PROBLEM_TYPES,
   UNSOLVABLE_REASONS,
   type ExtractedValue,
-  type MathProblemType,
+  type ProblemType,
   type StructuredApproachExpectation,
   type StructuredExpectation,
   type UnsolvableReason,
-} from "@/types/mathCorrection";
+} from "@/types/structuredCorrection";
 
 /**
  * The machine-comparable half of rubric generation.
@@ -62,9 +62,9 @@ function toExtractedValue(value: unknown): ExtractedValue {
   return { raw, parsed: raw ? parseNumericExpression(raw) : null };
 }
 
-function toProblemType(value: unknown): MathProblemType {
-  return typeof value === "string" && (MATH_PROBLEM_TYPES as readonly string[]).includes(value)
-    ? (value as MathProblemType)
+function toProblemType(value: unknown): ProblemType {
+  return typeof value === "string" && (PROBLEM_TYPES as readonly string[]).includes(value)
+    ? (value as ProblemType)
     : "unknown";
 }
 

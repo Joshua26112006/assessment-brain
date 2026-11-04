@@ -1,19 +1,19 @@
 import type { ChatCompletionContentPart } from "openai/resources/chat/completions";
 import { READ_MODEL } from "@/lib/ai/models";
 import { callStructuredAiWithContent } from "@/lib/ai/callStructured";
-import { parseNumericExpression } from "@/lib/mathCorrection/numericExpression";
-import { reconcileByKey, type ReconciledEntry } from "@/lib/mathCorrection/reconcile";
+import { parseNumericExpression } from "@/lib/structuredCorrection/numericExpression";
+import { reconcileByKey, type ReconciledEntry } from "@/lib/structuredCorrection/reconcile";
 import {
-  MATH_PROBLEM_TYPES,
+  PROBLEM_TYPES,
   type ExtractedValue,
-  type MathProblemType,
-  type ReconciledMathReading,
+  type ProblemType,
+  type ReconciledReading,
   type ReconcileConfidence,
-} from "@/types/mathCorrection";
+} from "@/types/structuredCorrection";
 import type { HandwrittenPageInput } from "@/lib/handwritten/types";
 
 /**
- * Stage 1 of the Mathematics correction flow: read each question's working off
+ * Stage 1 of the structured correction flow: read each question's working off
  * the student's pages and decompose it into named quantities and a final
  * value, so a later deterministic stage can compare it against the rubric.
  *
@@ -55,21 +55,21 @@ interface SinglePassReading {
   questionNumber: number;
   attempted: boolean;
   transcription: string;
-  problemType: MathProblemType;
+  problemType: ProblemType;
   steps: string[];
   variables: Record<string, ExtractedValue>;
   studentAnswer: ExtractedValue | null;
   structureConfidence: ReconcileConfidence;
 }
 
-export interface MathReadingQuestion {
+export interface ReadingQuestion {
   questionNumber: number;
   questionText: string;
 }
 
 function buildSystemPrompt(): string {
   return [
-    "You are reading a student's handwritten Mathematics answer sheet (multiple photographed pages, in order) so that a separate program can check their working.",
+    "You are reading a student's handwritten answer sheet (multiple photographed pages, in order) so that a separate program can check their working.",
     "You are NOT grading. Never judge whether anything is correct, never award marks, never correct the student's values, and never solve any question yourself.",
     "Respond with ONLY a single JSON object, no text before or after it, matching exactly:",
     '{"answers": [{"questionNumber": number, "attempted": boolean, "transcription": string, "problemType": string, "steps": [string], "variables": {"<name>": "<value>"}, "studentAnswer": string, "structureConfidence": "high" | "medium" | "low"}]}',
@@ -87,7 +87,7 @@ function buildSystemPrompt(): string {
   ].join("\n");
 }
 
-function buildQuestionList(questions: MathReadingQuestion[]): string {
+function buildQuestionList(questions: ReadingQuestion[]): string {
   return questions.map((q) => `- Question ${q.questionNumber}: ${q.questionText}`).join("\n");
 }
 
@@ -105,9 +105,9 @@ function toConfidence(value: unknown): ReconcileConfidence {
   return value === "high" || value === "medium" || value === "low" ? value : "low";
 }
 
-function toProblemType(value: unknown): MathProblemType {
-  return typeof value === "string" && (MATH_PROBLEM_TYPES as readonly string[]).includes(value)
-    ? (value as MathProblemType)
+function toProblemType(value: unknown): ProblemType {
+  return typeof value === "string" && (PROBLEM_TYPES as readonly string[]).includes(value)
+    ? (value as ProblemType)
     : "unknown";
 }
 
@@ -168,14 +168,14 @@ function parsePassResponse(
 
 async function readOnce(
   pages: HandwrittenPageInput[],
-  questions: MathReadingQuestion[],
+  questions: ReadingQuestion[],
   validQuestionNumbers: Set<number>,
 ): Promise<Map<number, SinglePassReading>> {
   const userContent: ChatCompletionContentPart[] = [
     {
       type: "text",
       text: [
-        "Read the following handwritten Mathematics answer-sheet pages, in order.",
+        "Read the following handwritten answer-sheet pages, in order.",
         "",
         "The questions on this assessment are:",
         buildQuestionList(questions),
@@ -199,7 +199,7 @@ async function readOnce(
     // every question on the paper at once, and a truncated response would fail
     // to parse and lose the whole read.
     maxTokens: 8000,
-    stage: "MATH_STRUCTURED_READING",
+    stage: "STRUCTURED_READING",
   });
 
   return parsePassResponse(raw, validQuestionNumbers);
@@ -217,10 +217,10 @@ function pickPreferred(a: SinglePassReading, b: SinglePassReading): SinglePassRe
  * Throws only if BOTH passes fail — a single failed pass still yields a
  * usable reading, marked low confidence because it could not be cross-checked.
  */
-export async function readMathAnswers(
+export async function readStructuredAnswers(
   pages: HandwrittenPageInput[],
-  questions: MathReadingQuestion[],
-): Promise<Map<number, ReconciledMathReading>> {
+  questions: ReadingQuestion[],
+): Promise<Map<number, ReconciledReading>> {
   if (pages.length === 0 || questions.length === 0) return new Map();
 
   const validQuestionNumbers = new Set(questions.map((q) => q.questionNumber));
@@ -241,7 +241,7 @@ export async function readMathAnswers(
 
   const reconciled = reconcileByKey(readingsA, readingsB, (value) => value.transcription, pickPreferred);
 
-  const result = new Map<number, ReconciledMathReading>();
+  const result = new Map<number, ReconciledReading>();
   for (const [questionNumber, entry] of reconciled) {
     result.set(questionNumber, toReconciledReading(questionNumber, entry));
   }
@@ -251,7 +251,7 @@ export async function readMathAnswers(
 function toReconciledReading(
   questionNumber: number,
   entry: ReconciledEntry<SinglePassReading>,
-): ReconciledMathReading {
+): ReconciledReading {
   const { value } = entry;
   return {
     questionNumber,

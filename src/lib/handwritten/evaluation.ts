@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { runPipelineForQuestionResponse } from "@/lib/assessment/pipeline";
 import { recalculateSubmissionStatus } from "@/lib/assessment/submissionStatusSync";
 import { createReviewItemIfNeeded } from "@/lib/assessment/pipelineReviewItems";
-import { hasCheckableRubric, runMathCorrectionForSubmission } from "@/lib/mathCorrection/submission";
+import { hasCheckableRubric, runStructuredCorrectionForSubmission } from "@/lib/structuredCorrection/submission";
 import type { AnswerIndexEntry, AnswerSheetValidationResult, StructuredAnswerIndex } from "./types";
 
 /**
@@ -139,7 +139,7 @@ export async function evaluateHandwrittenSubmission(submissionId: string): Promi
   // mapping, review signals, response creation — is shared, and anything the
   // rubric cannot check this way continues down the existing path unchanged.
   if (await hasCheckableRubric(submission.assessmentId)) {
-    await runMathCorrectionForSubmission(submissionId);
+    await runStructuredCorrectionForSubmission(submissionId);
     await recalculateSubmissionStatus(prisma, submissionId).catch(() => {});
     return;
   }

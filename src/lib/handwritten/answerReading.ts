@@ -58,7 +58,7 @@ const SYSTEM_PROMPT = [
   "",
   "READING rules (skip populating meaningful answers only if decision is INVALID — otherwise always attempt this):",
   "7. Transcribe what the student actually wrote as accurately as possible. Never invent, paraphrase away, or correct their wording.",
-  "8. Preserve mathematical working and reasoning steps as plain text description of what was written, in order.",
+  "8. Preserve any working and reasoning steps as plain text description of what was written, in order.",
   "9. If an answer's writing genuinely continues from one page onto another, report it as ONE entry with sourcePages listing every page it spans, in the order the content appears — never split one continuous answer into multiple entries.",
   "10. Students may answer questions out of order, or without writing the question number at all. Use the provided real question numbers and question text to infer the best match by content and context. Set mappedQuestionNumber to one of the real question numbers ONLY when you are reasonably confident; otherwise leave it null.",
   "11. detectedQuestionNumber is whatever number/label the student actually appears to have written near that answer (which may be illegible, missing, or wrong) — record it even if it doesn't match mappedQuestionNumber. Null if nothing was written.",

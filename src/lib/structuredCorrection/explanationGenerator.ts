@@ -7,10 +7,10 @@ import type {
   ExplanationResult,
   ExplanationType,
   VerificationResult,
-} from "@/types/mathCorrection";
+} from "@/types/structuredCorrection";
 
 /**
- * Stage 4 of the Mathematics correction flow: turn confirmed, structured
+ * Stage 4 of the structured correction flow: turn confirmed, structured
  * findings into something a student can actually read.
  *
  * The only stage that writes natural language, and deliberately the last one:
@@ -208,7 +208,7 @@ export async function generateExplanations(
       ),
       temperature: 0,
       maxTokens: 1500,
-      stage: "MATH_EXPLANATION",
+      stage: "STRUCTURED_EXPLANATION",
     });
     claims = parseClaims(raw);
   } catch {

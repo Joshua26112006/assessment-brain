@@ -1,6 +1,6 @@
 import { JUDGE_MODEL } from "@/lib/ai/models";
 import { callStructuredAi } from "@/lib/ai/callStructured";
-import type { ReconciledMathReading } from "@/types/mathCorrection";
+import type { ReconciledReading } from "@/types/structuredCorrection";
 import type { RubricMarkingCheckpoint } from "@/types/rubricGeneration";
 
 /**
@@ -33,7 +33,7 @@ export interface ScoringInput {
   expectedAnswer: string | null;
   markingCheckpoints: RubricMarkingCheckpoint[];
   partialCreditGuidance: string | null;
-  reading: ReconciledMathReading;
+  reading: ReconciledReading;
 }
 
 export interface QuestionScore {
@@ -114,7 +114,7 @@ export async function scoreQuestion(input: ScoringInput): Promise<QuestionScore>
     // giving up and asking a teacher to step in.
     maxAttempts: 3,
     maxTokens: 800,
-    stage: "MATH_SCORING",
+    stage: "STRUCTURED_SCORING",
   });
 
   const reported = typeof raw.awardedMarks === "number" && Number.isFinite(raw.awardedMarks) ? raw.awardedMarks : 0;

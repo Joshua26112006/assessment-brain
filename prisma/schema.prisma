@@ -426,15 +426,15 @@ model RubricVersion {
   partialCreditGuidance String? @db.Text
 
   /// A machine-comparable view of this same rubric (see
-  /// src/types/mathCorrection.ts) — per-approach named variables plus one
-  /// numeric expected answer — used ONLY by the Mathematics handwritten
+  /// src/types/structuredCorrection.ts) — per-approach named variables plus one
+  /// numeric expected answer — used ONLY by the structured handwritten
   /// correction flow's deterministic comparison stage. An addition to the
   /// prose rubric above, never a replacement: nothing that already reads
   /// solutionApproaches/markingCheckpoints/expectedAnswer is affected.
   ///
   /// JSON, matching the fields above, because the shape is still evolving.
-  /// Null for every non-Mathematics question and for any question the
-  /// generator judged to have no single checkable answer — an essay or proof
+  /// Null for every question without a single checkable answer, and for any
+  /// question the generator judged to have no single checkable answer — an essay or proof
   /// has nothing to compare numerically, which is a normal outcome rather
   /// than a generation failure.
   structuredExpectation Json?
@@ -526,7 +526,7 @@ model AnswerSheetPage {
   fileSizeBytes Int
 
   /// Storage key of the teacher-style marked-up copy of this page (ticks,
-  /// per-question scores, circled mistakes) produced by the Mathematics
+  /// per-question scores, circled mistakes) produced by the structured
   /// correction flow. Null until that flow has run and successfully annotated
   /// this page — annotation is best-effort, so a page that could not be
   /// marked up simply keeps this null and is shown unannotated.

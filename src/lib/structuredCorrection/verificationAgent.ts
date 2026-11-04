@@ -1,6 +1,6 @@
 import { VERIFY_MODEL } from "@/lib/ai/models";
 import { callStructuredAi } from "@/lib/ai/callStructured";
-import { numericTolerance } from "@/lib/mathCorrection/comparisonEngine";
+import { numericTolerance } from "@/lib/structuredCorrection/comparisonEngine";
 import type {
   ComparisonError,
   ComparisonResult,
@@ -8,11 +8,11 @@ import type {
   ExtractedValue,
   ReconcileConfidence,
   VerificationResult,
-} from "@/types/mathCorrection";
-import { parseNumericExpression } from "@/lib/mathCorrection/numericExpression";
+} from "@/types/structuredCorrection";
+import { parseNumericExpression } from "@/lib/structuredCorrection/numericExpression";
 
 /**
- * Stage 3 of the Mathematics correction flow: independently re-check every
+ * Stage 3 of the structured correction flow: independently re-check every
  * error the comparison stage claims to have found, before any of it reaches a
  * student.
  *
@@ -225,7 +225,7 @@ export async function verifyComparisonResult(
         userPrompt: buildRootPrompt(question, rootErrors),
         temperature: 0,
         maxTokens: 2000,
-        stage: "MATH_VERIFICATION",
+        stage: "STRUCTURED_VERIFICATION",
       });
       claims = parseClaims(raw);
     } catch (error) {
@@ -233,7 +233,7 @@ export async function verifyComparisonResult(
       // root error simply stays unverified. Logged rather than swallowed —
       // silently treating a broken verifier as "could not confirm" once hid a
       // total verification outage behind results that merely looked cautious.
-      console.error("Maths verification call failed for root errors", error);
+      console.error("Structured verification call failed for root errors", error);
       claims = new Map();
     }
 
@@ -285,12 +285,12 @@ export async function verifyComparisonResult(
         userPrompt: buildConsequencePrompt(question, error, dependencies),
         temperature: 0,
         maxTokens: 800,
-        stage: "MATH_VERIFICATION",
+        stage: "STRUCTURED_VERIFICATION",
       });
       const claim = parseClaims(raw).get(error.id);
       verification = claim ? judge(error, claim) : unverifiable(error);
     } catch (callError) {
-      console.error("Maths verification call failed for a consequence error", callError);
+      console.error("Structured verification call failed for a consequence error", callError);
       verification = unverifiable(error);
     }
 

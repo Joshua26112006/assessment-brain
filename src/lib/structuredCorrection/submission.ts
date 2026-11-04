@@ -1,23 +1,23 @@
 import { prisma } from "@/lib/prisma";
 import { createReviewItemIfNeeded } from "@/lib/assessment/pipelineReviewItems";
 import { loadOrderedAnswerSheetPages } from "@/lib/handwritten/pages";
-import { readMathAnswers } from "@/lib/mathCorrection/structuredReading";
-import { correctMathQuestion, type MathQuestionCorrection } from "@/lib/mathCorrection/pipeline";
-import { annotateAnswerSheet, type AnnotatableQuestion } from "@/lib/mathCorrection/annotation";
+import { readStructuredAnswers } from "@/lib/structuredCorrection/structuredReading";
+import { correctStructuredQuestion, type StructuredQuestionCorrection } from "@/lib/structuredCorrection/pipeline";
+import { annotateAnswerSheet, type AnnotatableQuestion } from "@/lib/structuredCorrection/annotation";
 import { PIPELINE_CONTRACT_VERSION } from "@/types/pipeline";
 import type { AnnotationResult, GradingResult } from "@/types/pipeline";
-import type { ReconciledMathReading, StructuredExpectation } from "@/types/mathCorrection";
+import type { ReconciledReading, StructuredExpectation } from "@/types/structuredCorrection";
 import type { RubricMarkingCheckpoint } from "@/types/rubricGeneration";
 
 /**
- * Runs the Mathematics correction flow for one handwritten submission and
+ * Runs the structured correction flow for one handwritten submission and
  * writes the results into the SAME QuestionResponse fields the existing
  * evaluation pipeline uses, so every teacher and student screen renders them
  * without changing a line of UI.
  *
- * Only ever reached for a Mathematics assessment (see
- * evaluateHandwrittenSubmission). Every other subject continues down the
- * existing per-question pipeline untouched.
+ * Only ever reached for an assessment with at least one checkable rubric
+ * (see hasCheckableRubric / evaluateHandwrittenSubmission). Every other
+ * assessment continues down the existing per-question pipeline untouched.
  *
  * Never throws. A submission that cannot be read at all is left for the
  * existing flow to report; per-question failures are recorded as review items
@@ -50,7 +50,7 @@ function stageBase<T extends string>(stage: T) {
   };
 }
 
-function buildGradingResult(correction: MathQuestionCorrection, maximumMarks: number): GradingResult {
+function buildGradingResult(correction: StructuredQuestionCorrection, maximumMarks: number): GradingResult {
   const awardedMarks = correction.score?.awardedMarks ?? 0;
   return {
     ...stageBase("GRADING" as const),
@@ -75,7 +75,7 @@ function buildGradingResult(correction: MathQuestionCorrection, maximumMarks: nu
  * empty because this flow produces no per-checkpoint outcomes — the findings
  * it does produce are the verified, question-level explanations below.
  */
-function buildAnnotationResult(correction: MathQuestionCorrection): AnnotationResult {
+function buildAnnotationResult(correction: StructuredQuestionCorrection): AnnotationResult {
   const improvements = correction.explanations.map((explanation) => explanation.explanation);
 
   return {
@@ -158,7 +158,7 @@ async function loadQuestionContexts(submissionId: string, assessmentId: string):
 
 async function persistCorrection(
   context: QuestionContext,
-  correction: MathQuestionCorrection,
+  correction: StructuredQuestionCorrection,
   assessmentId: string,
   submissionId: string,
 ): Promise<void> {
@@ -240,10 +240,10 @@ export async function hasCheckableRubric(assessmentId: string): Promise<boolean>
   });
 }
 
-export async function runMathCorrectionForSubmission(submissionId: string): Promise<void> {
+export async function runStructuredCorrectionForSubmission(submissionId: string): Promise<void> {
   const submission = await prisma.submission.findUnique({
     where: { id: submissionId },
-    select: { id: true, assessmentId: true },
+    select: { id: true, assessmentId: true, assessment: { select: { subject: true } } },
   });
   if (!submission) return;
 
@@ -251,10 +251,10 @@ export async function runMathCorrectionForSubmission(submissionId: string): Prom
   if (contexts.length === 0) return;
 
   let pages;
-  let readings: Map<number, ReconciledMathReading>;
+  let readings: Map<number, ReconciledReading>;
   try {
     pages = await loadOrderedAnswerSheetPages(submissionId);
-    readings = await readMathAnswers(
+    readings = await readStructuredAnswers(
       pages,
       contexts.map((context) => ({
         questionNumber: context.questionNumber,
@@ -262,7 +262,7 @@ export async function runMathCorrectionForSubmission(submissionId: string): Prom
       })),
     );
   } catch (error) {
-    console.error("Maths correction could not read the answer sheet", error);
+    console.error("Structured correction could not read the answer sheet", error);
     return;
   }
 
@@ -273,12 +273,12 @@ export async function runMathCorrectionForSubmission(submissionId: string): Prom
       const reading = readings.get(context.questionNumber);
       if (!reading) return null;
 
-      const correction = await correctMathQuestion({
+      const correction = await correctStructuredQuestion({
         questionId: context.questionId,
         questionNumber: context.questionNumber,
         questionText: context.questionText,
         maximumMarks: context.maximumMarks,
-        subject: "Mathematics",
+        subject: submission.assessment.subject,
         expectedAnswer: context.expectedAnswer,
         markingCheckpoints: context.markingCheckpoints,
         partialCreditGuidance: context.partialCreditGuidance,
@@ -296,7 +296,7 @@ export async function runMathCorrectionForSubmission(submissionId: string): Prom
   );
   for (const outcome of outcomes) {
     if (outcome.status === "rejected") {
-      console.error("Maths correction failed for one question", outcome.reason);
+      console.error("Structured correction failed for one question", outcome.reason);
     }
   }
   if (corrected.length === 0) return;

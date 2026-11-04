@@ -29,7 +29,7 @@ const SYSTEM_PROMPT = [
   "4. If a question has lettered sub-parts (a, b, c under one numbered question), keep them together as ONE question entry, with the sub-parts included in that entry's text in order — do not split them into separate top-level questions.",
   "5. Set marks to the number printed for that question if and only if one is clearly printed (e.g. \"[5 marks]\", \"(10)\"). If no mark is printed or it is not legible, set marks to null — never guess or estimate a mark.",
   "6. Set instructions to the paper's own general instructions text if clearly present (e.g. \"Answer all questions. Show your working.\"); otherwise null. Never invent instructions.",
-  "7. Set title to the paper's own heading/title if clearly present (e.g. \"Mathematics Mid-Term Examination\"); otherwise null.",
+  "7. Set title to the paper's own heading/title if clearly present (e.g. \"Mid-Term Examination\"); otherwise null.",
   "8. Set totalMarks to the paper's own printed total if clearly stated; otherwise null. Do not calculate it yourself.",
   "9. Set uncertain to true for any question where the text, number, or presence of the question itself was genuinely hard to read (blurry, cropped, smudged, low resolution) — the teacher will double-check these. Do not mark every question uncertain by default; only genuine cases.",
   "10. If pages are supplied in multiple images, they are the pages of ONE single question paper in order — extract questions from all of them together into one combined list, not just the first page.",

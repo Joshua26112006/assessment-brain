@@ -1,21 +1,21 @@
-import { compareReadingToRubric } from "@/lib/mathCorrection/comparisonEngine";
-import { verifyComparisonResult } from "@/lib/mathCorrection/verificationAgent";
+import { compareReadingToRubric } from "@/lib/structuredCorrection/comparisonEngine";
+import { verifyComparisonResult } from "@/lib/structuredCorrection/verificationAgent";
 import {
   buildUnverifiedExplanations,
   generateExplanations,
-} from "@/lib/mathCorrection/explanationGenerator";
-import { scoreQuestion, type QuestionScore } from "@/lib/mathCorrection/scoring";
+} from "@/lib/structuredCorrection/explanationGenerator";
+import { scoreQuestion, type QuestionScore } from "@/lib/structuredCorrection/scoring";
 import type {
   ComparisonResult,
   ErrorExplanation,
-  ReconciledMathReading,
+  ReconciledReading,
   StructuredExpectation,
   VerificationResult,
-} from "@/types/mathCorrection";
+} from "@/types/structuredCorrection";
 import type { RubricMarkingCheckpoint } from "@/types/rubricGeneration";
 
 /**
- * Runs the Mathematics correction stages for ONE question:
+ * Runs the structured correction stages for ONE question:
  *
  *   reading (already done for the whole submission, passed in)
  *     -> comparison against the rubric   (deterministic)
@@ -30,7 +30,7 @@ import type { RubricMarkingCheckpoint } from "@/types/rubricGeneration";
  * result assembled from a broken run.
  */
 
-export interface MathQuestionInput {
+export interface StructuredQuestionInput {
   questionId: string;
   questionNumber: number;
   questionText: string;
@@ -40,14 +40,14 @@ export interface MathQuestionInput {
   markingCheckpoints: RubricMarkingCheckpoint[];
   partialCreditGuidance: string | null;
   structuredExpectation: StructuredExpectation | null;
-  reading: ReconciledMathReading;
+  reading: ReconciledReading;
 }
 
-export interface MathQuestionCorrection {
+export interface StructuredQuestionCorrection {
   questionId: string;
   questionNumber: number;
   /** The reading these findings were derived from, carried through for the record. */
-  reading: ReconciledMathReading;
+  reading: ReconciledReading;
   /** Null when marking itself failed — the caller must flag this rather than record a zero. */
   score: QuestionScore | null;
   comparison: ComparisonResult;
@@ -63,7 +63,7 @@ export interface MathQuestionCorrection {
 }
 
 async function analyseErrors(
-  input: MathQuestionInput,
+  input: StructuredQuestionInput,
 ): Promise<{ comparison: ComparisonResult; verification: VerificationResult | null; explanations: ErrorExplanation[]; mistakesWithheld: boolean }> {
   const comparison = compareReadingToRubric(input.reading, input.structuredExpectation);
 
@@ -107,7 +107,7 @@ async function analyseErrors(
   };
 }
 
-export async function correctMathQuestion(input: MathQuestionInput): Promise<MathQuestionCorrection> {
+export async function correctStructuredQuestion(input: StructuredQuestionInput): Promise<StructuredQuestionCorrection> {
   const [scoreOutcome, analysisOutcome] = await Promise.allSettled([
     scoreQuestion({
       questionText: input.questionText,

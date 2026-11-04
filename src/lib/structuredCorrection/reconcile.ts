@@ -12,7 +12,7 @@
  * about whether the student's answer is correct.
  */
 
-import type { ReconcileConfidence } from "@/types/mathCorrection";
+import type { ReconcileConfidence } from "@/types/structuredCorrection";
 
 const HIGH_SIMILARITY_THRESHOLD = 0.85;
 const MEDIUM_SIMILARITY_THRESHOLD = 0.5;

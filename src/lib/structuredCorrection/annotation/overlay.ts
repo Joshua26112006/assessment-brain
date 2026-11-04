@@ -1,4 +1,4 @@
-import type { AnswerColumn, BBox } from "@/lib/mathCorrection/annotation/textractPage";
+import type { AnswerColumn, BBox } from "@/lib/structuredCorrection/annotation/textractPage";
 
 /**
  * Draws the teacher-style marks that get composited onto a student's own page:

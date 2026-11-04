@@ -1,4 +1,4 @@
-import type { StructuredExpectation } from "@/types/mathCorrection";
+import type { StructuredExpectation } from "@/types/structuredCorrection";
 
 /**
  * Automatic AI rubric-generation contracts (Phase 4.1).
@@ -40,9 +40,9 @@ export interface RubricDraft {
   partialCreditGuidance: string;
   /**
    * Machine-comparable view of the same rubric, generated alongside the prose
-   * above for Mathematics questions only (see
+   * above for questions with one definite checkable answer only (see
    * src/lib/rubricGeneration/structuredExpectation.ts). Null for every other
-   * subject, and whenever the model returned nothing usable — the prose rubric
+   * question, and whenever the model returned nothing usable — the prose rubric
    * is unaffected either way.
    */
   structuredExpectation: StructuredExpectation | null;

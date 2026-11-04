@@ -1,5 +1,5 @@
 /**
- * Contracts for the Mathematics handwritten-correction flow.
+ * Contracts for the structured handwritten-correction flow (questions with one definite, checkable answer).
  *
  * Deliberately separate from src/types/pipeline.ts: that describes the
  * deterministic-plus-AI evaluation of a typed QuestionResponse, which this
@@ -12,7 +12,7 @@
 /**
  * A value as the AI reported it (`raw`) plus what our own arithmetic evaluator
  * makes of it (`parsed`). `parsed` is never supplied by a model — see
- * src/lib/mathCorrection/numericExpression.ts for why. Null means "not cleanly
+ * src/lib/structuredCorrection/numericExpression.ts for why. Null means "not cleanly
  * numeric", which the comparison stage treats as "cannot verify", never as a
  * mismatch.
  */
@@ -27,7 +27,7 @@ export interface ExtractedValue {
  * judgement, and "unknown" is a legitimate answer rather than a failure —
  * a forced guess here would be worse than no classification at all.
  */
-export type MathProblemType =
+export type ProblemType =
   | "mean"
   | "median"
   | "mode"
@@ -71,7 +71,7 @@ export interface StructuredApproachExpectation {
 export interface StructuredExpectation {
   solvable: boolean;
   unsolvableReason?: UnsolvableReason;
-  problemType: MathProblemType;
+  problemType: ProblemType;
   correctAnswer: ExtractedValue | null;
   approaches: StructuredApproachExpectation[];
 }
@@ -84,10 +84,10 @@ export type ReconcileConfidence = "high" | "medium" | "low";
 
 /**
  * One question's answer as read from the student's pages, after reconciling
- * two independent passes (see src/lib/mathCorrection/structuredReading.ts).
+ * two independent passes (see src/lib/structuredCorrection/structuredReading.ts).
  * Extraction only: nothing here is a judgement about correctness.
  */
-export interface ReconciledMathReading {
+export interface ReconciledReading {
   questionNumber: number;
   /** Verbatim transcription of the student's working, preserving their wording. */
   transcription: string;
@@ -95,7 +95,7 @@ export interface ReconciledMathReading {
   attempted: boolean;
   /** Agreement between the two independent reads of this question. */
   agreementConfidence: ReconcileConfidence;
-  problemType: MathProblemType;
+  problemType: ProblemType;
   /** The distinct logical steps the student wrote, in their own order. */
   steps: string[];
   /** Every named quantity the student explicitly wrote a value for. */
@@ -107,7 +107,7 @@ export interface ReconciledMathReading {
 }
 
 // ---------------------------------------------------------------------------
-// Deterministic comparison (src/lib/mathCorrection/comparisonEngine.ts)
+// Deterministic comparison (src/lib/structuredCorrection/comparisonEngine.ts)
 // ---------------------------------------------------------------------------
 
 /**
@@ -145,7 +145,7 @@ export type ComparisonStatus =
   | "skipped_unsolvable"
   /** The student did not attempt this question — a scoring outcome, not a mistake. */
   | "skipped_not_attempted"
-  /** No structured expectation exists for this question (non-Maths, or generation produced none). */
+  /** No structured expectation exists for this question (not a checkable question, or generation produced none). */
   | "skipped_no_expectation";
 
 export interface ComparisonResult {
@@ -153,15 +153,15 @@ export interface ComparisonResult {
   /** Which of the rubric's approaches best matched the student's working. */
   matchedApproachLabel: string | null;
   /** Set only when the student's and rubric's problem classifications disagree — a pipeline-confidence signal, not a student error. */
-  readingProblemType?: MathProblemType;
-  expectationProblemType?: MathProblemType;
+  readingProblemType?: ProblemType;
+  expectationProblemType?: ProblemType;
   errors: ComparisonError[];
   matchedVariableCount: number;
   totalExpectedVariableCount: number;
 }
 
 // ---------------------------------------------------------------------------
-// Independent verification (src/lib/mathCorrection/verificationAgent.ts)
+// Independent verification (src/lib/structuredCorrection/verificationAgent.ts)
 // ---------------------------------------------------------------------------
 
 /**
@@ -199,7 +199,7 @@ export interface VerificationResult {
 }
 
 // ---------------------------------------------------------------------------
-// Student-facing explanation (src/lib/mathCorrection/explanationGenerator.ts)
+// Student-facing explanation (src/lib/structuredCorrection/explanationGenerator.ts)
 // ---------------------------------------------------------------------------
 
 export type ExplanationType =
@@ -231,7 +231,7 @@ export interface ExplanationResult {
   explanations: ErrorExplanation[];
 }
 
-export const MATH_PROBLEM_TYPES: readonly MathProblemType[] = [
+export const PROBLEM_TYPES: readonly ProblemType[] = [
   "mean",
   "median",
   "mode",
