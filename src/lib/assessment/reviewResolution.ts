@@ -355,7 +355,7 @@ export async function resolveReviewItem(
  * note — otherwise the student's results page, which defensively rejects
  * malformed annotation JSON, would silently drop the teacher's feedback.
  */
-function withTeacherFeedback(existing: unknown, note: TeacherFeedbackNote): AnnotationResult {
+export function withTeacherFeedback(existing: unknown, note: TeacherFeedbackNote): AnnotationResult {
   const parsed = parseAnnotationResult(existing);
   const base: AnnotationResult =
     parsed ??

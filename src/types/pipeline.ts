@@ -353,7 +353,8 @@ export interface TeacherFeedbackNote {
   note: string;
   authoredAt: ISODateString;
   reviewerId: TeacherId;
-  reviewItemId: ID;
+  /** Null when the teacher wrote this from the mark-review screen rather than from a flagged review item. */
+  reviewItemId: ID | null;
 }
 
 /**
@@ -402,7 +403,8 @@ export interface TeacherReviewRecord {
   action: TeacherReviewAction;
   reviewedAt: ISODateString;
   reviewerId: TeacherId;
-  reviewItemId: ID;
+  /** Null when the teacher acted from the mark-review screen rather than from a flagged review item. */
+  reviewItemId: ID | null;
   previousAwardedMarks: number | null;
   previousOutcome: GradingOutcome | null;
   previousEvidenceSource: GradingEvidenceSource | null;
