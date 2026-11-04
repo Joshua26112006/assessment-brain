@@ -80,6 +80,21 @@ export function classifyAnswer(input: AttentionInput): AnswerAttention {
   return { level: unique.length > 0 ? "UNSURE" : "SURE", reasons: unique, needsMark: false, reviewed };
 }
 
+const LEVEL_RANK: Record<AttentionLevel, number> = { CANNOT_READ: 0, UNSURE: 1, SURE: 2 };
+
+/**
+ * Review order (the plan's Stage 4 queue): answers with no mark first, then the
+ * ones the system is unsure of, then the sure ones; a question the student did
+ * not answer comes last. Within each group, in question order.
+ */
+export function compareForReview(
+  a: { questionNumber: number; answered: boolean; level: AttentionLevel },
+  b: { questionNumber: number; answered: boolean; level: AttentionLevel },
+): number {
+  const rank = (entry: typeof a) => (entry.answered ? LEVEL_RANK[entry.level] : 3);
+  return rank(a) - rank(b) || a.questionNumber - b.questionNumber;
+}
+
 /** The smallest step a mark may move by (decision D12). */
 export const MARK_STEP = 0.5;
 

@@ -1,13 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // Everything outside this module is replaced: no database, no models, no storage.
-vi.mock("@/lib/prisma", () => ({
-  prisma: {
+vi.mock("@/lib/prisma", () => {
+  const prisma = {
     submission: { findUnique: vi.fn() },
     question: { findMany: vi.fn() },
-    questionResponse: { findMany: vi.fn(), update: vi.fn() },
-  },
-}));
+    questionResponse: { findMany: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
+    markEvent: { create: vi.fn() },
+    $transaction: vi.fn(),
+  };
+  // The transaction callback simply runs against the same mocked client.
+  prisma.$transaction.mockImplementation(async (callback: (tx: unknown) => unknown) => callback(prisma));
+  return { prisma };
+});
 vi.mock("@/lib/assessment/pipelineReviewItems", () => ({ createReviewItemIfNeeded: vi.fn() }));
 vi.mock("@/lib/handwritten/pages", () => ({ loadOrderedAnswerSheetPages: vi.fn() }));
 vi.mock("@/lib/structuredCorrection/structuredReading", () => ({ readStructuredAnswers: vi.fn() }));
@@ -79,6 +84,9 @@ function setUpSubmission(questionNumbers: number[], responses = questionNumbers.
   db.question.findMany.mockResolvedValue(questionNumbers.map(questionRow) as never);
   db.questionResponse.findMany.mockResolvedValue(responses as never);
   db.questionResponse.update.mockResolvedValue({} as never);
+  db.questionResponse.updateMany.mockResolvedValue({ count: 1 } as never);
+  db.markEvent.create.mockResolvedValue({} as never);
+  db.$transaction.mockImplementation((async (callback: (tx: unknown) => unknown) => callback(db)) as never);
   loadPages.mockResolvedValue([{ pageId: "p1", pageNumber: 1, mimeType: "image/png", buffer: Buffer.from("") }]);
 }
 
@@ -150,8 +158,8 @@ describe("runStructuredCorrectionForSubmission — nothing is ever left pending 
     await runStructuredCorrectionForSubmission(SUBMISSION);
 
     expect(flaggedResponseIds()).toEqual(["r2"]);
-    const graded = db.questionResponse.update.mock.calls.filter(([args]) => (args.data as { status?: string }).status === "GRADED");
-    expect(graded.map(([args]) => args.where.id)).toEqual(["r1"]);
+    const graded = db.questionResponse.updateMany.mock.calls.filter(([args]) => (args.data as { status?: string }).status === "GRADED");
+    expect(graded.map(([args]) => args.where!.id)).toEqual(["r1"]);
   });
 
   it("flags a question the sheet reader skipped even though writing was mapped to it", async () => {
@@ -225,7 +233,7 @@ describe("runStructuredCorrectionForSubmission — what a teacher gets to review
 
     await runStructuredCorrectionForSubmission(SUBMISSION);
 
-    const graded = db.questionResponse.update.mock.calls.find(([args]) => (args.data as { status?: string }).status === "GRADED");
+    const graded = db.questionResponse.updateMany.mock.calls.find(([args]) => (args.data as { status?: string }).status === "GRADED");
     const stored = (graded![0].data as { correctionResult: { findings: unknown[] } }).correctionResult;
     expect(stored.findings).toEqual([
       {
@@ -247,6 +255,63 @@ describe("runStructuredCorrectionForSubmission — what a teacher gets to review
 
     expect(correct).toHaveBeenCalledTimes(2);
     expect(drawOnPages).not.toHaveBeenCalled();
+  });
+});
+
+describe("runStructuredCorrectionForSubmission — the audit trail starts with the AI's own mark", () => {
+  const marked = (input: Parameters<typeof correctStructuredQuestion>[0], awarded: number | null) => ({
+    questionId: input.questionId,
+    questionNumber: input.questionNumber,
+    reading: input.reading,
+    score: awarded === null ? null : { awardedMarks: awarded, maximumMarks: 4, feedback: "ok" },
+    comparison: { status: "skipped_unsolvable" as const, matchedApproachLabel: null, errors: [], matchedVariableCount: 0, totalExpectedVariableCount: 0 },
+    verification: null,
+    explanations: [],
+    mistakesWithheld: false,
+  });
+
+  it("records an AI_DRAFT event with the mark, in the same transaction as the mark itself", async () => {
+    setUpSubmission([1]);
+    readSheet.mockResolvedValue(new Map([[1, reading(1)]]));
+    correct.mockImplementation(async (input) => marked(input, 3));
+
+    await runStructuredCorrectionForSubmission(SUBMISSION);
+
+    expect(db.$transaction).toHaveBeenCalledTimes(1);
+    expect(db.markEvent.create).toHaveBeenCalledTimes(1);
+    expect(db.markEvent.create.mock.calls[0][0].data).toMatchObject({
+      kind: "AI_DRAFT",
+      submissionId: SUBMISSION,
+      questionResponseId: "r1",
+      marks: 3,
+    });
+  });
+
+  it("records no draft when marking produced no mark", async () => {
+    setUpSubmission([1]);
+    readSheet.mockResolvedValue(new Map([[1, reading(1)]]));
+    correct.mockImplementation(async (input) => marked(input, null));
+
+    await runStructuredCorrectionForSubmission(SUBMISSION);
+
+    expect(db.markEvent.create).not.toHaveBeenCalled();
+  });
+
+  it("does not overwrite an answer a teacher finished while the AI was still working", async () => {
+    setUpSubmission([1]);
+    readSheet.mockResolvedValue(new Map([[1, reading(1)]]));
+    correct.mockImplementation(async (input) => marked(input, 3));
+    db.questionResponse.updateMany.mockResolvedValue({ count: 0 } as never); // the teacher got there first
+
+    await runStructuredCorrectionForSubmission(SUBMISSION);
+
+    // The write is conditional on the answer not being finished already...
+    expect(db.questionResponse.updateMany.mock.calls[0][0].where!).toMatchObject({
+      id: "r1",
+      status: { notIn: ["GRADED", "NEEDS_REVIEW", "FAILED"] },
+    });
+    // ...and when it matched nothing, no AI mark is recorded for it.
+    expect(db.markEvent.create).not.toHaveBeenCalled();
   });
 });
 

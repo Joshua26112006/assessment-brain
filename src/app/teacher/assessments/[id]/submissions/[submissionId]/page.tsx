@@ -4,7 +4,7 @@ import { requireTeacherSession } from "@/lib/require-teacher";
 import { getOwnedAssessmentOrNotFound } from "@/lib/assessment-ownership";
 import { loadSubmissionReview, type ReviewAnswerRow } from "@/lib/assessment/markRelease";
 import { parseAnnotationResult, parseGradingResult } from "@/lib/pipeline/parseResults";
-import { roundMarks } from "@/lib/assessment/markReview";
+import { compareForReview, roundMarks } from "@/lib/assessment/markReview";
 import { PageHeader, Card, Section, ScoreDisplay } from "@/components/ui/Page";
 import StatusBadge, { type BadgeTone } from "@/components/ui/StatusBadge";
 import AnswerReviewForm from "./AnswerReviewForm";
@@ -141,7 +141,14 @@ export default async function ReviewSubmissionPage({
 
       <Section title="Answers">
         <div className="flex flex-col gap-4">
-          {rows.map((row) => (
+          {[...rows]
+            .sort((a, b) =>
+              compareForReview(
+                { questionNumber: a.questionNumber, answered: a.response !== null, level: a.attention.level },
+                { questionNumber: b.questionNumber, answered: b.response !== null, level: b.attention.level },
+              ),
+            )
+            .map((row) => (
             <AnswerCard key={row.questionId} row={row} submissionId={submission.id} locked={locked} />
           ))}
         </div>

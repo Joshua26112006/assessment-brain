@@ -46,7 +46,8 @@ export type ResolveReviewItemFailureCode =
   | "NO_QUESTION_RESPONSE"
   | "NO_GRADING_RESULT"
   | "INVALID_MARKS"
-  | "CANNOT_DISMISS";
+  | "CANNOT_DISMISS"
+  | "LOCKED";
 
 export type ResolveReviewItemResult =
   | {
@@ -109,6 +110,7 @@ export async function resolveReviewItem(
           gradingResult: true,
           annotationResult: true,
           question: { select: { id: true, assessmentId: true, maximumMarks: true } },
+          submission: { select: { confirmedAt: true } },
         },
       },
     },
@@ -131,6 +133,16 @@ export async function resolveReviewItem(
 
   const trimmedNote = input.feedbackNote?.trim() ?? "";
   const feedbackNote = trimmedNote.length > 0 ? trimmedNote : null;
+
+  // A confirmed submission's marks and comments are locked (markRelease.ts).
+  // Dismissing a flag without a note changes neither, so that stays possible.
+  if (response?.submission.confirmedAt && (action !== "DISMISS" || feedbackNote)) {
+    return {
+      ok: false,
+      code: "LOCKED",
+      message: "This submission has been confirmed. Reopen it from the review-marks screen to change marks.",
+    };
+  }
 
   // --- DISMISS: acknowledge the flag, change no marks. ---
   if (action === "DISMISS") {
@@ -330,6 +342,19 @@ export async function resolveReviewItem(
         status: "GRADED",
         gradingResult: nextGrading as unknown as object,
         ...(nextAnnotation ? { annotationResult: nextAnnotation as unknown as object } : {}),
+      },
+    });
+
+    // Every change to a mark is in the audit trail, whichever screen made it.
+    await tx.markEvent.create({
+      data: {
+        kind: decisionAction === "CONFIRMED" ? "TEACHER_ACCEPT" : "TEACHER_CHANGE",
+        submissionId: response.submissionId,
+        questionResponseId: response.id,
+        marks: awardedMarks,
+        previousMarks: previous?.awardedMarks ?? null,
+        actorId: teacherId,
+        payload: { reviewItemId: item.id, via: "review-queue" },
       },
     });
 

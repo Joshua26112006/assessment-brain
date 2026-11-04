@@ -1,3 +1,4 @@
+import type { QuestionResponseStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { createReviewItemIfNeeded } from "@/lib/assessment/pipelineReviewItems";
 import { loadOrderedAnswerSheetPages } from "@/lib/handwritten/pages";
@@ -24,7 +25,7 @@ import type { RubricMarkingCheckpoint } from "@/types/rubricGeneration";
  */
 
 /** Statuses meaning a response has already been fully attempted — never recomputed. */
-const TERMINAL_STATUSES = ["GRADED", "NEEDS_REVIEW", "FAILED"];
+const TERMINAL_STATUSES: QuestionResponseStatus[] = ["GRADED", "NEEDS_REVIEW", "FAILED"];
 
 interface QuestionContext {
   questionId: string;
@@ -166,48 +167,73 @@ async function persistCorrection(
 ): Promise<void> {
   const status = correction.score ? "GRADED" : "FAILED";
 
-  await prisma.questionResponse.update({
-    where: { id: context.responseId },
-    data: {
-      status,
-      gradingResult: buildGradingResult(correction, context.maximumMarks) as unknown as object,
-      annotationResult: buildAnnotationResult(correction) as unknown as object,
-      // What the reading extracted and what the comparison concluded from it.
-      // Persisted because without it there is no way to answer "why was nothing
-      // marked on this page" after the fact — the stages are AI calls whose
-      // inputs cannot be reconstructed from a rerun, and diagnosing a real
-      // submission previously meant re-running the whole read to guess.
-      correctionResult: {
-        reading: {
-          attempted: correction.reading.attempted,
-          agreementConfidence: correction.reading.agreementConfidence,
-          structureConfidence: correction.reading.structureConfidence,
-          problemType: correction.reading.problemType,
-          variables: Object.fromEntries(
-            Object.entries(correction.reading.variables).map(([name, value]) => [name, value.raw]),
+  // The response and the record of the AI's own mark are written together, so
+  // the audit trail always starts from what the AI actually decided.
+  await prisma.$transaction(async (tx) => {
+    // Conditional on the answer not already being finished: if a teacher dealt
+    // with it while the AI was still working, the late AI result must not
+    // overwrite their decision (and no AI_DRAFT is recorded for a mark that
+    // was never stored).
+    const written = await tx.questionResponse.updateMany({
+      where: { id: context.responseId, status: { notIn: TERMINAL_STATUSES } },
+      data: {
+        status,
+        gradingResult: buildGradingResult(correction, context.maximumMarks) as unknown as object,
+        annotationResult: buildAnnotationResult(correction) as unknown as object,
+        // What the reading extracted and what the comparison concluded from it.
+        // Persisted because without it there is no way to answer "why was nothing
+        // marked on this page" after the fact — the stages are AI calls whose
+        // inputs cannot be reconstructed from a rerun, and diagnosing a real
+        // submission previously meant re-running the whole read to guess.
+        correctionResult: {
+          reading: {
+            attempted: correction.reading.attempted,
+            agreementConfidence: correction.reading.agreementConfidence,
+            structureConfidence: correction.reading.structureConfidence,
+            problemType: correction.reading.problemType,
+            variables: Object.fromEntries(
+              Object.entries(correction.reading.variables).map(([name, value]) => [name, value.raw]),
+            ),
+            studentAnswer: correction.reading.studentAnswer?.raw ?? null,
+          },
+          comparison: correction.comparison,
+          verificationStatus: correction.verification?.status ?? null,
+          explanationCount: correction.explanations.length,
+          // Stored so a teacher can keep or remove each one (decision D5); until
+          // they do, none of them reaches the student's marked copy.
+          findings: correction.explanations.map(
+            (explanation): StoredFinding => ({
+              id: explanation.errorId,
+              type: explanation.explanationType,
+              explanation: explanation.explanation,
+              wrongText: explanation.wrongText ?? null,
+              correctVersion: explanation.correctVersion ?? null,
+            }),
           ),
-          studentAnswer: correction.reading.studentAnswer?.raw ?? null,
+        } as unknown as object,
+        // Pin the exact rubric version this was judged against, so the result
+        // stays reproducible after the rubric changes — the same guarantee the
+        // existing pipeline provides.
+        ...(context.rubricVersionId && { rubricVersionUsedId: context.rubricVersionId }),
+      },
+    });
+    if (written.count === 0) return;
+    if (correction.score) {
+      await tx.markEvent.create({
+        data: {
+          kind: "AI_DRAFT",
+          submissionId,
+          questionResponseId: context.responseId,
+          marks: correction.score.awardedMarks,
+          payload: {
+            flow: "structured",
+            maximumMarks: context.maximumMarks,
+            findings: correction.explanations.length,
+            verificationStatus: correction.verification?.status ?? null,
+          },
         },
-        comparison: correction.comparison,
-        verificationStatus: correction.verification?.status ?? null,
-        explanationCount: correction.explanations.length,
-        // Stored so a teacher can keep or remove each one (decision D5); until
-        // they do, none of them reaches the student's marked copy.
-        findings: correction.explanations.map(
-          (explanation): StoredFinding => ({
-            id: explanation.errorId,
-            type: explanation.explanationType,
-            explanation: explanation.explanation,
-            wrongText: explanation.wrongText ?? null,
-            correctVersion: explanation.correctVersion ?? null,
-          }),
-        ),
-      } as unknown as object,
-      // Pin the exact rubric version this was judged against, so the result
-      // stays reproducible after the rubric changes — the same guarantee the
-      // existing pipeline provides.
-      ...(context.rubricVersionId && { rubricVersionUsedId: context.rubricVersionId }),
-    },
+      });
+    }
   });
 
   // The ONLY thing escalated to a teacher: marking could not be completed at

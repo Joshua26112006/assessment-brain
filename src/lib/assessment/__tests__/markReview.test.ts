@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   classifyAnswer,
+  compareForReview,
   confirmationBlockers,
   roundMarks,
   validateTeacherMark,
@@ -161,3 +162,18 @@ describe("roundMarks", () => {
     expect(roundMarks(2.5)).toBe(2.5);
   });
 });
+
+describe("compareForReview", () => {
+  const entry = (questionNumber: number, level: "CANNOT_READ" | "UNSURE" | "SURE", answered = true) => ({ questionNumber, level, answered });
+
+  it("puts answers with no mark first, then unsure ones, then sure ones, then unanswered", () => {
+    const sorted = [entry(1, "SURE"), entry(2, "UNSURE"), entry(3, "CANNOT_READ"), entry(4, "SURE", false), entry(5, "SURE")].sort(compareForReview);
+    expect(sorted.map((e) => e.questionNumber)).toEqual([3, 2, 1, 5, 4]);
+  });
+
+  it("keeps question order within a group", () => {
+    const sorted = [entry(4, "UNSURE"), entry(2, "UNSURE"), entry(3, "UNSURE")].sort(compareForReview);
+    expect(sorted.map((e) => e.questionNumber)).toEqual([2, 3, 4]);
+  });
+});
+
