@@ -158,6 +158,19 @@ export default async function AssessmentSubmissionsPage({
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="font-medium">{submission.student.name}</p>
                       <StatusBadge label={badge.label} tone={badge.tone} size="sm" />
+                      {!isDraft && (
+                        <StatusBadge
+                          label={
+                            submission.releasedAt
+                              ? "Released to student"
+                              : submission.confirmedAt
+                                ? "Confirmed, not released"
+                                : "Not released"
+                          }
+                          tone={submission.releasedAt ? "success" : submission.confirmedAt ? "info" : "neutral"}
+                          size="sm"
+                        />
+                      )}
                     </div>
                     <p className="mt-1 text-xs text-muted">
                       {SUBMISSION_STATUS_COPY[submission.status] ?? submission.status}
@@ -180,6 +193,14 @@ export default async function AssessmentSubmissionsPage({
                     <p className="mt-2 text-xs text-subtle">
                       {describeEvaluationProgress(summary)}
                     </p>
+                    <div className="mt-3">
+                      <Link
+                        href={`/teacher/assessments/${assessment.id}/submissions/${submission.id}`}
+                        className={buttonClass(submission.releasedAt ? "ghost" : "secondary", "sm")}
+                      >
+                        {submission.releasedAt ? "View marks" : "Review & release marks"} &rarr;
+                      </Link>
+                    </div>
                     <div className="mt-3 flex flex-wrap gap-2">
                       {summary.questions.map((question) => (
                         <QuestionChip
