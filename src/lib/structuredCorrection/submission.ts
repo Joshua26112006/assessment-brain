@@ -1,4 +1,5 @@
 import { detectAndStoreStudentDiagrams } from "@/lib/figures/diagramCropStore";
+import { markDiagramAnswer } from "@/lib/figures/diagramMarking";
 import type { QuestionResponseStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { createReviewItemIfNeeded } from "@/lib/assessment/pipelineReviewItems";
@@ -445,27 +446,47 @@ export async function runStructuredCorrectionForSubmission(submissionId: string)
   );
   const approved = allContexts.filter((context) => context.schemeApproved);
 
-  // A diagram, graph, construction, map or chemical structure is marked by the teacher, never by the AI
-  // (decision D3). It is parked straight away; no mark is drafted.
+  // A diagram, graph, construction, map or chemical structure. The diagram is found and cropped first; then the AI drafts a
+  // mark from the scheme's checklist, and flags it for the teacher unless it is very clear (owner decision, Nov 6, which
+  // replaced "diagrams are teacher-only"). The teacher still accepts every mark. When there is nothing to judge (no
+  // diagram found, or the checker could not complete) the answer is parked for the teacher exactly as before.
   const diagrams = approved.filter((context) => routeAnswer({ answerType: context.answerType, reading: null }).kind === "TEACHER_ONLY_DIAGRAM");
+  let diagramsFound = false;
+  if (diagrams.length > 0) {
+    await findDiagramsSafely(submissionId, submission.assessmentId, new Set(diagrams.flatMap((context) => context.sourcePages)));
+    diagramsFound = true;
+  }
   await Promise.all(
-    diagrams.map((context) =>
-      holdForTeacher({
-        responseId: context.responseId,
-        assessmentId: submission.assessmentId,
-        submissionId,
-        questionId: context.questionId,
-        reason: "DIAGRAM_TEACHER_ONLY",
-        detail: "This answer is a diagram, graph or drawing, so it was not marked automatically.",
-      }),
-    ),
+    diagrams.map(async (context) => {
+      const held = (detail: string) =>
+        holdForTeacher({
+          responseId: context.responseId,
+          assessmentId: submission.assessmentId,
+          submissionId,
+          questionId: context.questionId,
+          reason: "DIAGRAM_TEACHER_ONLY",
+          detail,
+        });
+      try {
+        const result = await markDiagramAnswer({
+          submissionId,
+          questionId: context.questionId,
+          questionNumber: context.questionNumber,
+          questionText: context.questionText,
+          subject: submission.assessment.subject,
+          maximumMarks: context.maximumMarks,
+          criteria: context.scheme.criteria,
+        });
+        if ("held" in result) await held(result.held);
+        else await persistCorrection(context, result.correction, submission.assessmentId, submissionId);
+      } catch (error) {
+        console.error("Marking a diagram answer failed:", error instanceof Error ? error.message : error);
+        await held("This answer is a diagram, and it could not be checked automatically, so it has no draft mark.");
+      }
+    }),
   );
   const contexts = approved.filter((context) => !diagrams.includes(context));
-  const diagramPages = new Set(diagrams.flatMap((context) => context.sourcePages));
-  if (contexts.length === 0) {
-    if (diagrams.length > 0) await findDiagramsSafely(submissionId, submission.assessmentId, diagramPages);
-    return;
-  }
+  if (contexts.length === 0) return;
 
   let pages;
   let readings: Map<number, ReconciledReading>;
@@ -490,12 +511,13 @@ export async function runStructuredCorrectionForSubmission(submissionId: string)
   }
 
   // Drawings: on the pages where a diagram question's answer is, and on any page the reader says an answer has a drawing.
-  const drawingPages = new Set(diagramPages);
+  // (Diagram questions already had every page examined above, so this runs only for drawings inside other answers.)
+  const drawingPages = new Set<number>();
   for (const reading of readings.values()) {
     if (!reading.containsDiagram) continue;
     for (const segment of reading.segments ?? []) drawingPages.add(segment.page);
   }
-  if (diagrams.length > 0 || drawingPages.size > 0) await findDiagramsSafely(submissionId, submission.assessmentId, drawingPages);
+  if (!diagramsFound && drawingPages.size > 0) await findDiagramsSafely(submissionId, submission.assessmentId, drawingPages);
 
   // The OTHER direction of the same disagreement: the reader found writing for a question the mapping step
   // gave no answer to. That writing may belong to another question (or the mapping missed it), so a teacher

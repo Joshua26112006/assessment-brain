@@ -86,7 +86,7 @@ export default function QuestionCard({ question, assessmentId, figures }: { ques
               {question.questionNumber}
             </span>
             <span className="text-xs font-medium text-subtle">
-              Question {question.label ?? question.questionNumber} · {question.maximumMarks} {question.maximumMarks === 1 ? "mark" : "marks"}{question.answerType === "DIAGRAM" ? " · you mark this one" : ""}
+              Question {question.label ?? question.questionNumber} · {question.maximumMarks} {question.maximumMarks === 1 ? "mark" : "marks"}{question.answerType === "DIAGRAM" ? " · diagram: the AI drafts, you confirm" : ""}
             </span>
           </div>
 

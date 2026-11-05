@@ -101,18 +101,36 @@ export async function callStructuredAiWithContent<T>(
 ): Promise<T> {
   const client = getOpenRouterClient();
 
+  const create = (withSchema: boolean) =>
+    client.chat.completions.create({
+      model: options.model,
+      temperature: options.temperature ?? 0.2,
+      seed: options.seed,
+      max_tokens: options.maxTokens ?? DEFAULT_MAX_TOKENS,
+      messages: [
+        { role: "system", content: options.systemPrompt },
+        { role: "user", content: options.userContent },
+      ],
+      ...(withSchema && options.jsonSchema
+        ? { response_format: { type: "json_schema" as const, json_schema: { name: options.jsonSchema.name, strict: true, schema: options.jsonSchema.schema } } }
+        : {}),
+    });
+  // Once a provider has refused the schema, later attempts of this call do not send it again.
+  let schemaRefused = false;
+
   const { text, usage } = await withRetry(
     async () => {
-      const completion = await client.chat.completions.create({
-        model: options.model,
-        temperature: options.temperature ?? 0.2,
-        seed: options.seed,
-        max_tokens: options.maxTokens ?? DEFAULT_MAX_TOKENS,
-        messages: [
-          { role: "system", content: options.systemPrompt },
-          { role: "user", content: options.userContent },
-        ],
-      });
+      let completion;
+      try {
+        completion = await create(!schemaRefused);
+      } catch (error) {
+        if (options.jsonSchema && !schemaRefused && isSchemaRefusal(error)) {
+          schemaRefused = true;
+          completion = await create(false);
+        } else {
+          throw error;
+        }
+      }
 
       const text = completion.choices[0]?.message?.content;
       if (!text || typeof text !== "string") {

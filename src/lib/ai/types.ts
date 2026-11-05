@@ -74,6 +74,8 @@ export interface StructuredAiCallWithContentOptions {
    * is a worse failure than a slightly larger reservation.
    */
   maxTokens?: number;
+  /** A strict JSON schema for the reply, as on StructuredAiCallOptions: asked again without it if the provider refuses it. */
+  jsonSchema?: { name: string; schema: Record<string, unknown> };
   /** The caller's own context label (e.g. "QUESTION_PAPER_EXTRACTION") — attributes AiCallLog rows back to a stage. */
   stage: string;
   /** Caller-supplied identifiers (questionId, submissionId, ...) for the AiCallLog row. Shape varies by stage. */

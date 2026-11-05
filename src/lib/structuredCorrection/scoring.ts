@@ -69,6 +69,8 @@ export interface MarkingDetail {
   flags?: string[];
   /** The AI's opinion on a method that differs from the scheme. An opinion only: the mark is never changed by it. */
   alternativeMethod?: { verdict: "valid" | "invalid" | "unclear"; reason: string };
+  /** Present when the answer was a diagram: which crops were judged, against what, and how legible it was. */
+  diagram?: { cropIds: string[]; reference: "NONE" | "PAPER_FIGURE" | "MODEL_DIAGRAM" | "BOTH"; legibility: "high" | "medium" | "low"; cropsConfident: boolean };
 }
 
 interface RawScore {

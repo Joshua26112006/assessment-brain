@@ -123,6 +123,7 @@ export function markingOf(correctionResult: unknown): MarkingDetail | null {
     reasons: m.reasons.filter((r): r is string => typeof r === "string"),
     model: typeof m.model === "string" ? m.model : "",
     ...(Array.isArray(m.flags) ? { flags: m.flags.filter((f): f is string => typeof f === "string") } : {}),
+    ...(m.diagram && Array.isArray(m.diagram.cropIds) ? { diagram: m.diagram } : {}),
     ...(m.alternativeMethod && ["valid", "invalid", "unclear"].includes(m.alternativeMethod.verdict) && typeof m.alternativeMethod.reason === "string"
       ? { alternativeMethod: m.alternativeMethod }
       : {}),
