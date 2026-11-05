@@ -139,6 +139,7 @@ async function loadReviewItems(teacherId: string) {
         select: {
           id: true,
           questionNumber: true,
+          label: true,
           questionText: true,
           assessment: { select: { id: true, title: true } },
         },
@@ -183,7 +184,7 @@ function ReviewItemCard({ item, open }: { item: ReviewQueueItem; open: boolean }
             </div>
             <p className="mt-2 text-sm font-medium">
               {student ?? "Unknown student"}
-              {item.question ? ` · Question ${item.question.questionNumber}` : ""}
+              {item.question ? ` · Question ${item.question.label ?? item.question.questionNumber}` : ""}
             </p>
             <p className="mt-0.5 text-xs text-muted">{assessmentTitle}</p>
           </div>

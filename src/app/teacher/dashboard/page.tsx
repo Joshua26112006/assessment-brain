@@ -47,7 +47,7 @@ export default async function TeacherDashboardPage() {
       select: {
         id: true,
         reason: true,
-        question: { select: { questionNumber: true } },
+        question: { select: { questionNumber: true, label: true } },
         submission: {
           select: { student: { select: { name: true } }, assessment: { select: { title: true } } },
         },
@@ -106,7 +106,7 @@ export default async function TeacherDashboardPage() {
                       </p>
                       <p className="mt-0.5 text-xs text-muted">
                         {item.submission?.student.name ?? "Unknown student"}
-                        {item.question ? ` · Question ${item.question.questionNumber}` : ""}
+                        {item.question ? ` · Question ${item.question.label ?? item.question.questionNumber}` : ""}
                       </p>
                     </div>
                     <StatusBadge label={badge.label} tone={badge.tone} size="sm" />

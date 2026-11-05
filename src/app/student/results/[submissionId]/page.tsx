@@ -233,7 +233,7 @@ function QuestionResultCard({
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-line p-5">
         <div className="min-w-0">
           <span className="text-xs font-medium text-subtle">
-            Question {label} · {maximumMarks} marks
+            Question {label} · {maximumMarks} {Number(maximumMarks) === 1 ? "mark" : "marks"}
           </span>
           <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed">{questionText}</p>
         </div>

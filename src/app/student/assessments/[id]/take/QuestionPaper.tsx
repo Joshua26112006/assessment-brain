@@ -3,6 +3,7 @@ import { Card } from "@/components/ui/Page";
 export interface QuestionPaperQuestion {
   id: string;
   questionNumber: number;
+  label?: string | null;
   questionText: string;
   maximumMarks: number;
 }
@@ -52,12 +53,12 @@ export default function QuestionPaper({
             <div className="flex items-baseline gap-2">
               <span
                 aria-hidden="true"
-                className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-surface-muted text-xs font-semibold text-muted"
+                className="grid h-6 min-w-6 px-1 shrink-0 place-items-center rounded-md bg-surface-muted text-xs font-semibold text-muted"
               >
-                {question.questionNumber}
+                {question.label ?? question.questionNumber}
               </span>
               <span className="text-xs font-medium text-subtle">
-                Question {question.questionNumber} · {question.maximumMarks} marks
+                Question {question.label ?? question.questionNumber} · {question.maximumMarks} {question.maximumMarks === 1 ? "mark" : "marks"}
               </span>
             </div>
             <p className="mt-2 whitespace-pre-wrap pl-8 text-sm leading-relaxed">

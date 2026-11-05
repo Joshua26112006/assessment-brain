@@ -128,6 +128,8 @@ export function validateTeacherMark(raw: unknown, maximumMarks: number): MarkVal
 
 export interface ConfirmationAnswer {
   questionNumber: number;
+  /** What the paper calls it ("3(b)"); falls back to the number. */
+  label?: string;
   needsMark: boolean;
   reviewed: boolean;
   /** True for a question the student never answered; confirmation records it as 0 and it needs no separate review. */
@@ -140,9 +142,9 @@ export function confirmationBlockers(answers: ConfirmationAnswer[]): string[] {
   for (const answer of [...answers].sort((a, b) => a.questionNumber - b.questionNumber)) {
     if (answer.notAnswered) continue;
     if (answer.needsMark) {
-      blockers.push(`Question ${answer.questionNumber} has no mark yet — enter one.`);
+      blockers.push(`Question ${answer.label ?? answer.questionNumber} has no mark yet — enter one.`);
     } else if (!answer.reviewed) {
-      blockers.push(`Question ${answer.questionNumber} has not been checked yet.`);
+      blockers.push(`Question ${answer.label ?? answer.questionNumber} has not been checked yet.`);
     }
   }
   return blockers;

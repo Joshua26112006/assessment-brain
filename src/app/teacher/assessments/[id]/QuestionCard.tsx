@@ -81,7 +81,7 @@ export default function QuestionCard({ question }: { question: QuestionCardData 
               {question.questionNumber}
             </span>
             <span className="text-xs font-medium text-subtle">
-              Question {question.label ?? question.questionNumber} · {question.maximumMarks} marks{question.answerType === "DIAGRAM" ? " · you mark this one" : ""}
+              Question {question.label ?? question.questionNumber} · {question.maximumMarks} {question.maximumMarks === 1 ? "mark" : "marks"}{question.answerType === "DIAGRAM" ? " · you mark this one" : ""}
             </span>
           </div>
 

@@ -19,6 +19,7 @@ export const metadata = { title: "Complete assessment rubric" };
 interface QuestionForRubricsPage {
   id: string;
   questionNumber: number;
+  label: string;
   questionText: string;
   maximumMarks: number;
   rubric: {
@@ -61,6 +62,7 @@ export default async function AssessmentRubricsPage({
   const questions: QuestionForRubricsPage[] = assessment.questions.map((q) => ({
     id: q.id,
     questionNumber: q.questionNumber,
+    label: q.label ?? String(q.questionNumber),
     questionText: q.questionText,
     maximumMarks: Number(q.maximumMarks),
     rubric: q.rubric
@@ -153,7 +155,7 @@ export default async function AssessmentRubricsPage({
                     href={`#question-${q.questionNumber}`}
                     className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-muted hover:bg-surface-muted hover:text-foreground"
                   >
-                    <span>Question {q.questionNumber}</span>
+                    <span>Question {q.label}</span>
                     <span
                       aria-hidden="true"
                       className={`h-1.5 w-1.5 shrink-0 rounded-full ${
@@ -203,8 +205,8 @@ function QuestionRubricSection({
       className="scroll-mt-24 rounded-xl border border-line bg-surface p-6"
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <h3 className="text-base font-semibold">Question {question.questionNumber}</h3>
-        <span className="shrink-0 text-xs font-medium text-subtle">{question.maximumMarks} marks</span>
+        <h3 className="text-base font-semibold">Question {question.label}</h3>
+        <span className="shrink-0 text-xs font-medium text-subtle">{question.maximumMarks} {question.maximumMarks === 1 ? "mark" : "marks"}</span>
       </div>
       <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed">{question.questionText}</p>
 

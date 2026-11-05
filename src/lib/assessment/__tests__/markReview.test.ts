@@ -147,6 +147,14 @@ describe("confirmationBlockers", () => {
     ]);
   });
 
+  it("names a question the way the paper does, not by its internal number", () => {
+    const blockers = confirmationBlockers([
+      { questionNumber: 6, label: "4", needsMark: true, reviewed: false, notAnswered: false },
+      { questionNumber: 1, label: "1(a)", needsMark: false, reviewed: false, notAnswered: false },
+    ]);
+    expect(blockers).toEqual(["Question 1(a) has not been checked yet.", "Question 4 has no mark yet — enter one."]);
+  });
+
   it("does not block on a question the student never answered", () => {
     expect(confirmationBlockers([answer(1), answer(2, { notAnswered: true, reviewed: false })])).toEqual([]);
   });

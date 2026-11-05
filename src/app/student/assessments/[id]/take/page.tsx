@@ -67,6 +67,7 @@ export default async function TakeAssessmentPage({
         questions={assessment.questions.map((q) => ({
           id: q.id,
           questionNumber: q.questionNumber,
+          label: q.label,
           questionText: q.questionText,
           maximumMarks: Number(q.maximumMarks),
         }))}

@@ -64,7 +64,7 @@ export default function RubricGenerationProgress({ readiness }: { readiness: Ass
             <span aria-hidden="true" className={`w-4 shrink-0 text-center font-semibold ${ICON_TONE[q.bucket]}`}>
               {ICON[q.bucket]}
             </span>
-            <span className="text-foreground">Question {q.questionNumber}</span>
+            <span className="text-foreground">Question {q.label}</span>
             <span className="text-xs text-muted">
               —{" "}
               {q.bucket === "REVIEW_REQUIRED" && q.validationIssueType

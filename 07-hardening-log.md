@@ -8,7 +8,7 @@ This is the record of everything that went wrong, was surprising, or needs the o
 
 ## Where things stand
 
-All six phases are built, tested (851 unit tests, `tsc` and `eslint` clean) and committed. Every migration is applied to the live database. What has not happened yet is the owner's review, and a final click-through of the screens in a browser (see "Not verified").
+All six phases are built, tested (852 unit tests, `tsc` and `eslint` clean) and committed. Every migration is applied to the live database. The screens were clicked through in a browser at the end (see "The final browser walkthrough"). What has not happened yet is the owner's review.
 
 ## The owner's decisions, in one place
 
@@ -40,9 +40,9 @@ These are the items that are genuinely yours. Everything else in this log is eit
 
 After each: 16 users, 9 submissions, 48 responses, 0 mark events, 0 released — unchanged. Phases 4, 6 and 7 changed no schema.
 
-## Problems found while building: 38
+## Problems found while building: 50
 
-**17 fixed · 8 accepted or observations · 13 open (need you, or a later fix).**
+**20 fixed · 12 accepted or observations · 18 open (need you, or a later fix).** Problems 39 to 50 came from the final browser walkthrough, described in its own section below the deviations.
 
 ### Found when the Phase 1 screens were clicked through in a browser
 
@@ -141,9 +141,32 @@ Each needs a yes or a change at review.
 - **Handwritten answers no longer use the older checkpoint route** (problem 27); typed answers still do.
 - **Diagram "crop" is the whole page** (problem 28).
 
+## The final browser walkthrough (problems 39 to 50)
+
+Done in a throwaway copy of the app on a scratch database schema, never the live one. A two-page handwritten sheet was drawn (a crossed-out MCQ answer, margin rough work, both choices of an "(a) OR (b)" answered, a diagram), the schemes were drafted by the real model, and the sheet was read and marked by the real pipeline. Then the teacher flow was clicked through: scheme approval, review, confirm, release, the student's results and the submissions page.
+
+| # | Problem | Status |
+| --- | --- | --- |
+| 39 | The confirm-marks list said "Question 6 has no mark yet" when the paper calls that question "Question 4". Messages used the internal number, not the label ("1(a)", "4"). The same slip was in the readiness messages, rubric pages, dashboard, review queue, student question paper and the per-question score chips. | **Fixed.** Labels are used everywhere; a unit test covers the confirm list. |
+| 40 | Rough work was drawn struck through, so it looked like crossed-out work (the label beside it was struck as well). | **Fixed.** Only crossed-out work is struck through; rough work is just greyed. |
+| 41 | "1 marks" instead of "1 mark" on the question cards, the student's paper and results, and the teacher's review. | **Fixed.** |
+| 42 | A mistake the AI listed ("You did not include θ = 0°") sits beside a scheme item about that angle that was awarded. The mark is right; the two read as contradicting each other. | **Open.** The teacher can remove the mistake with one click. The finding is checked against its own step, not against every scheme item. |
+| 43 | The AI drafted "Newton's second law" as three equal key points, including "rate of change of momentum", so the plain answer "force equals mass times acceleration" got 1.5 of 3. The scheme is a draft; this is why the teacher approves it. | **Observation.** Not a code fault. |
+| 44 | One rubric draft failed ("Could not extract valid JSON from the AI response") and showed the existing Retry button. | **Observation.** Handled, but it shows the scheme drafter occasionally returns unusable output. |
+| 45 | The OpenRouter key refused the old whole-sheet reading call: "can only afford 32550 tokens" while that call asks for up to 65,536. This is a limit on the key, not a code fault, and the call is old code (Phase 5 did not touch it). For the walkthrough the reading summary was written by hand and the new page-by-page reading and marking ran for real. | **Needs you.** Check the key's credit limit before testing live. The old call asks for far more tokens than it uses. |
+| 46 | A question whose own marker was crossed out (the MCQ "3. C" struck, then "B") gets no mark drawn on the copy. The release message says so, and its mark is still in the total and the student's results. | **Accepted** (a mark is never drawn at a guessed spot). |
+| 47 | On the marked copy, the mark symbols sit on top of the question label ("1(a)") and the total circle covers the "Page 1/2" header on this sheet. Where the margin is wider on a real sheet this may not happen. | **Open (cosmetic).** Same as problem 9. |
+| 48 | The scheme panel's "Follow-through" setting is shown for descriptive questions where it means nothing, and the rubric is shown twice (as the rubric and again as the marking scheme). | **Open (polish).** |
+| 49 | The scheme-approval list showed "1 approach · 0 checkpoints" for an exact-answer (MCQ) scheme. | **Open (polish).** |
+| 50 | The unused older typed-answer form (`AnswerForm.tsx`) still shows the question number. It is not shown anywhere. | **Left as is.** |
+
+**Checked and fine in the browser:** the approval panel counts and the blocked Publish button; "Approve this scheme" recording the approval; the review screen (criteria with evidence, three runs, greyed rough work, kept/removed mistakes, diagram sent to the teacher with the page shown, over-attempt note); the early "Confirm" being refused with a list; "Accept all sure answers"; the total (8.5 of 11: the better of 2(a) and 2(b) counts, the other kept with a star); confirm, then release; the released message about the mark that could not be placed; the student's marked copy and results (star and note on the over-attempt, the teacher's diagram mark); the submissions page and its calibration panel (it waits for 10 reviewed answers before showing agreement).
+
+**Not clicked in the browser:** the paper-review screen for a paper with parts and choices (covered by unit tests and a real extraction run in Phase 3), and the "scheme changed after marking" flag.
+
 ## Not verified, and why
 
-- **A final click-through of the screens in a browser** (assessment page with scheme approval; paper review with parts and choices; teacher review with criteria, crossed-out work and over-attempt; submissions page with calibration; student results). The unit tests and type checks cover the logic, but the screens were last opened in a browser for Phase 1.
+- **The paper-review screen with parts and choices** and **"scheme changed" after marking** were not opened in a browser (see above).
 - **Real handwriting accuracy**: only synthetic clean-font sheets exist (problem 34).
 - **The 9 live submissions** were never re-marked with the new scheme and routes; nothing here touches them.
 - **Marked copy on real scans**: marker placement is tested on synthetic sheets and in unit tests; real photographs are untested.

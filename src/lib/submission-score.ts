@@ -20,6 +20,8 @@ export type QuestionResultState = "CONFIRMED" | "NEEDS_REVIEW" | "FAILED" | "PEN
 export interface QuestionResultSummary {
   questionId: string;
   questionNumber: number;
+  /** What the paper calls the question ("3(b)"); null when it has no label. */
+  label: string | null;
   maximumMarks: number;
   state: QuestionResultState;
   /** Only set when state is CONFIRMED — never a guess. */
@@ -59,6 +61,7 @@ export interface SubmissionScoreSummary {
 interface QuestionLike {
   id: string;
   questionNumber: number;
+  label?: string | null;
   maximumMarks: unknown;
 }
 
@@ -92,6 +95,7 @@ export function summarizeSubmissionScore(
     const base = {
       questionId: question.id,
       questionNumber: question.questionNumber,
+      label: question.label ?? null,
       maximumMarks,
       awardedMarks: null,
       teacherReviewed: false,

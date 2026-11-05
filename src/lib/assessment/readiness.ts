@@ -64,6 +64,8 @@ export type RubricReadinessBucket =
 export interface QuestionReadiness {
   questionId: string;
   questionNumber: number;
+  /** What the paper calls it ("3(b)"); the number when it has no label. */
+  label: string;
   maximumMarks: number;
   bucket: RubricReadinessBucket;
   generationError: string | null;
@@ -91,6 +93,7 @@ export interface AssessmentReadiness {
 export interface QuestionForReadiness {
   id: string;
   questionNumber: number;
+  label?: string | null;
   maximumMarks: number | Prisma.Decimal;
   rubric: {
     generationStatus: string;
@@ -128,6 +131,7 @@ export function computeAssessmentReadiness(questionsInput: QuestionForReadiness[
   const questions: QuestionReadiness[] = questionsInput.map((q) => ({
     questionId: q.id,
     questionNumber: q.questionNumber,
+    label: q.label ?? String(q.questionNumber),
     maximumMarks: Number(q.maximumMarks),
     bucket: bucketFor(q.rubric),
     generationError: q.rubric?.generationError ?? null,
@@ -178,6 +182,7 @@ export async function getAssessmentReadiness(assessmentId: string): Promise<Asse
     select: {
       id: true,
       questionNumber: true,
+      label: true,
       maximumMarks: true,
       rubric: {
         select: {
@@ -229,7 +234,7 @@ export function describeAssessmentReadiness(readiness: AssessmentReadiness): Rea
   if (readiness.failedCount > 0) {
     const numbers = readiness.questions
       .filter((q) => q.bucket === "FAILED")
-      .map((q) => q.questionNumber)
+      .map((q) => q.label)
       .join(", ");
     return {
       headline: "Action required",
@@ -241,7 +246,7 @@ export function describeAssessmentReadiness(readiness: AssessmentReadiness): Rea
   if (readiness.reviewRequiredCount > 0) {
     const numbers = readiness.questions
       .filter((q) => q.bucket === "REVIEW_REQUIRED")
-      .map((q) => q.questionNumber)
+      .map((q) => q.label)
       .join(", ");
     return {
       headline: "Action required",
@@ -261,7 +266,7 @@ export function describeAssessmentReadiness(readiness: AssessmentReadiness): Rea
   if (readiness.awaitingApprovalCount > 0) {
     const numbers = readiness.questions
       .filter((q) => q.bucket === "AWAITING_APPROVAL")
-      .map((q) => q.questionNumber)
+      .map((q) => q.label)
       .join(", ");
     const plural = readiness.awaitingApprovalCount === 1;
     return {
@@ -287,7 +292,7 @@ export function describeAssessmentReadiness(readiness: AssessmentReadiness): Rea
   if (readiness.missingCount > 0) {
     const numbers = readiness.questions
       .filter((q) => q.bucket === "MISSING")
-      .map((q) => q.questionNumber)
+      .map((q) => q.label)
       .join(", ");
     return {
       headline: "Action required",

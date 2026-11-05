@@ -699,6 +699,7 @@ export async function confirmSubmission(input: { teacherId: string; submissionId
     const blockers = confirmationBlockers(
       rows.map((row) => ({
         questionNumber: row.questionNumber,
+        label: row.label,
         needsMark: row.attention.needsMark,
         reviewed: row.attention.reviewed,
         notAnswered: row.response === null,

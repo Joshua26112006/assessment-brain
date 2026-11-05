@@ -211,7 +211,7 @@ export default async function ReviewItemDetailPage({
         description={
           <>
             {student?.name ?? "Unknown student"}
-            {question ? ` · Question ${question.questionNumber} · ${maximumMarks} marks` : ""}
+            {question ? ` · Question ${question.label ?? question.questionNumber} · ${maximumMarks} ${Number(maximumMarks) === 1 ? "mark" : "marks"}` : ""}
             {assessment ? ` · ${assessment.title}` : ""}
           </>
         }

@@ -263,7 +263,7 @@ function AnswerCard({
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-line p-5">
         <div className="min-w-0">
           <span className="text-xs font-medium text-subtle">
-            Question {row.label} · {row.maximumMarks} marks
+            Question {row.label} · {row.maximumMarks} {row.maximumMarks === 1 ? "mark" : "marks"}
           </span>
           {overAttempt && (
             <p className="mt-1 text-xs font-medium text-info">
@@ -313,13 +313,14 @@ function AnswerCard({
                 </p>
                 <ul className="mt-2 flex flex-col gap-1.5 text-sm">
                   {readingSegmentsOf(response.correctionResult).map((segment, index) => (
-                    <li key={index} className={segment.marked ? "" : "text-subtle line-through decoration-subtle"}>
-                      <span className="mr-2 text-xs text-muted no-underline">
+                    <li key={index} className={segment.marked ? "" : "text-subtle"}>
+                      <span className="mr-2 text-xs text-muted">
                         p.{segment.page}
                         {segment.status === "struck" ? (segment.marked ? " · crossed out, no replacement (marked)" : " · crossed out (not marked)") : ""}
                         {segment.status === "rough" ? " · rough work (not marked)" : ""}
                       </span>
-                      <span className="whitespace-pre-wrap">{segment.text}</span>
+                      {/* Only crossed-out work is struck through; rough work is just greyed. */}
+                      <span className={`whitespace-pre-wrap ${segment.status === "struck" ? "line-through decoration-subtle" : ""}`}>{segment.text}</span>
                     </li>
                   ))}
                 </ul>

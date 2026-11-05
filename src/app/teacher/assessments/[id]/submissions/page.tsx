@@ -82,6 +82,7 @@ export default async function AssessmentSubmissionsPage({
   const questions = assessment.questions.map((q) => ({
     id: q.id,
     questionNumber: q.questionNumber,
+    label: q.label,
     maximumMarks: q.maximumMarks,
   }));
 
@@ -257,7 +258,7 @@ function QuestionChip({
   question: QuestionResultSummary;
   reviewItemId: string | null;
 }) {
-  const label = `Q${question.questionNumber}`;
+  const label = `Q${question.label ?? question.questionNumber}`;
 
   const body =
     question.state === "CONFIRMED"

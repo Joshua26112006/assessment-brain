@@ -20,7 +20,7 @@ export async function getOwnedReviewItemOrNotFound(reviewItemId: string, teacher
         select: { id: true, title: true, subject: true, grade: true, curriculum: true },
       },
       question: {
-        select: { id: true, questionNumber: true, questionText: true, maximumMarks: true },
+        select: { id: true, questionNumber: true, label: true, questionText: true, maximumMarks: true },
       },
       submission: {
         select: {
