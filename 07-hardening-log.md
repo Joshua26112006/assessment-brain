@@ -38,6 +38,7 @@ These are the items that are genuinely yours. Everything else in this log is eit
 | `20261105110000_add_question_labels_and_tree` | 3 | question label and answer type, the paper's structure on the assessment | Nov 5 |
 | `20261105120000_add_review_reasons_for_diagrams_and_language` | 5 | review reasons `DIAGRAM_TEACHER_ONLY`, `UNSUPPORTED_LANGUAGE` | Nov 5 |
 | `20261105130000_add_number_format_settings` | 7 | two per-question ticks on a rubric version (percentage answers, decimal comma), both default off | Nov 5 |
+| `20261106100000_add_question_figures` | Diagrams | the QuestionFigure table: figures of a digital paper and a teacher's model diagrams | Nov 6 |
 
 After each: 16 users, 9 submissions, 48 responses, 0 mark events, 0 released — unchanged. Phases 4, 6 and 7 changed no schema.
 
