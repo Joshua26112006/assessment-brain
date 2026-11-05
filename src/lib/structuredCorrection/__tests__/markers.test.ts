@@ -7,6 +7,23 @@ const line = (text: string, confidence = 95): MarkerLine => ({
 const at = (lines: MarkerLine[], questionNumber: number, label?: string) =>
   locateMarkers(lines, [{ questionNumber, label }]).get(questionNumber);
 
+describe("locateMarkers — a question known only by its number, printed with its parts", () => {
+  it("starts where the first part starts, when there is no plain line for the number", () => {
+    const lines = [line("1(a) In the figure find x"), line("(b) State the property"), line("2. Study the table")];
+    const found = locateMarkers(lines, [{ questionNumber: 1 }, { questionNumber: 2 }]);
+    expect([...found]).toEqual([[1, 0], [2, 2]]);
+  });
+
+  it("still prefers a plain line for the number when there is one", () => {
+    const lines = [line("1. Answer the following"), line("(a) Find x"), line("(b) Find y")];
+    expect(at(lines, 1)).toBe(0);
+  });
+
+  it("does not take a later part (b) for the whole question", () => {
+    expect(at([line("1(b) only the second part is printed")], 1)).toBeUndefined();
+  });
+});
+
 describe("locateMarkers — a flat paper keeps working exactly as before", () => {
   const sheet = [line("Find the mode of the data"), line("1. Find the mode"), line("Ans: 30-40"), line("2) If the mean is 20"), line("3 What is the range")];
 

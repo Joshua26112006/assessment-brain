@@ -113,6 +113,12 @@ export function locateMarkers(
       index = firstMatch((candidate) => candidate.number === wanted.number && candidate.parts.length === 0);
     }
 
+    // The reverse: a question known only by its number ("1") while the paper prints it as "1(a)" with the parts that
+    // follow. With no plain "1" line, the whole question starts where its first part does.
+    if (index === -1 && wanted.parts.length === 0) {
+      index = firstMatch((candidate) => candidate.number === wanted.number && startsItsQuestion(candidate.parts));
+    }
+
     if (index >= 0) {
       found.set(target.questionNumber, index);
       searchFrom = index + 1;

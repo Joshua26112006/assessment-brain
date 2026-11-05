@@ -56,10 +56,24 @@ export async function detectPaperFigures(pdf: Buffer, targets: MarkerTarget[], s
   const pages = await renderPdfPages(pdf, { scale });
   const notes: string[] = [];
 
+  // The options were tuned at 144 dots per inch (scale 2).
+  const factor = scale / 2;
+  // Drawings first: a line of writing inside one is a label or a table row, never the start of a question.
+  const regionsByPage = pages.map((page) =>
+    findInkRegions(page.gray, page.width, page.height, page.textBoxes, { joinGap: 24 * factor, minThickness: 8 * factor }),
+  );
+
   // Every printed line of the paper in order, so the marker search can run over the whole paper at once.
-  const all = pages.flatMap((page, pageIndex) => page.lines.map((line) => ({ pageIndex, line })));
+  const all = pages.flatMap((page, pageIndex) =>
+    page.lines.map((line) => ({
+      pageIndex,
+      line,
+      // A line that cannot start a question is kept (so positions line up) but given no words to be mistaken for a number.
+      candidate: canStartQuestion(line, regionsByPage[pageIndex]) ? line : { ...line, words: [] },
+    })),
+  );
   const found = locateMarkers(
-    all.map((entry) => entry.line),
+    all.map((entry) => entry.candidate),
     targets,
   );
   const markers: Marker[] = [...found.entries()].map(([questionNumber, index]) => ({
@@ -74,15 +88,9 @@ export async function detectPaperFigures(pdf: Buffer, targets: MarkerTarget[], s
     );
   }
 
-  // The options were tuned at 144 dots per inch (scale 2).
-  const factor = scale / 2;
   const figures: DetectedFigure[] = [];
   for (const [pageIndex, page] of pages.entries()) {
-    const regions = findInkRegions(page.gray, page.width, page.height, page.textBoxes, {
-      joinGap: 24 * factor,
-      minThickness: 8 * factor,
-    });
-    for (const region of regions) {
+    for (const region of regionsByPage[pageIndex]) {
       const padded = pad(region, Math.round(10 * factor), page.width, page.height);
       const cropWidth = padded.right - padded.left;
       const cropHeight = padded.bottom - padded.top;
@@ -103,6 +111,20 @@ export async function detectPaperFigures(pdf: Buffer, targets: MarkerTarget[], s
 
   if (figures.length === 0) notes.push("No figure, graph or table was found in the PDF.");
   return { figures, pagesRead: pages.length, notes };
+}
+
+/** Words that are only numbers and number punctuation: "1 4", "2 9", "13.5 %". */
+const NUMBER_ONLY = /^[\d.,%()+\-−/:;]+$/;
+
+/**
+ * Whether a printed line could be where a question begins. Not if it lies inside a drawing (a table's rows begin with
+ * numbers too), and not if it is nothing but numbers (a table without ruled lines, a row of data).
+ */
+export function canStartQuestion(line: { words: Array<{ text: string }>; box: PixelBox }, regions: PixelBox[]): boolean {
+  if (line.words.length >= 2 && line.words.every((word) => NUMBER_ONLY.test(word.text))) return false;
+  const middleX = (line.box.left + line.box.right) / 2;
+  const middleY = (line.box.top + line.box.bottom) / 2;
+  return !regions.some((region) => middleX >= region.left && middleX < region.right && middleY >= region.top && middleY < region.bottom);
 }
 
 function pad(box: PixelBox, amount: number, width: number, height: number): PixelBox {

@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
-import { detectPaperFigures, questionFollowedBy } from "@/lib/figures/paperFigures";
+import { canStartQuestion, detectPaperFigures, questionFollowedBy } from "@/lib/figures/paperFigures";
 import { groupIntoLines } from "@/lib/figures/pdfPages";
 
 describe("questionFollowedBy", () => {
@@ -25,6 +25,30 @@ describe("questionFollowedBy", () => {
   it("is nothing for a figure above the first question", () => {
     expect(questionFollowedBy(0, 50, markers)).toBeNull();
     expect(questionFollowedBy(0, 50, [])).toBeNull();
+  });
+});
+
+describe("canStartQuestion", () => {
+  const box = { left: 100, top: 500, right: 300, bottom: 520 };
+  const words = (...texts: string[]) => texts.map((text) => ({ text }));
+
+  it("is true for an ordinary line", () => {
+    expect(canStartQuestion({ words: words("2.", "Study", "the", "table"), box }, [])).toBe(true);
+  });
+
+  it("is false for a row of numbers: that is data, not a question number", () => {
+    expect(canStartQuestion({ words: words("1", "4"), box }, [])).toBe(false);
+    expect(canStartQuestion({ words: words("3", "13.5", "%"), box }, [])).toBe(false);
+  });
+
+  it("is false for a line inside a drawing, and true for one just outside it", () => {
+    const region = { left: 80, top: 480, right: 400, bottom: 560 };
+    expect(canStartQuestion({ words: words("A"), box }, [region])).toBe(false);
+    expect(canStartQuestion({ words: words("3.", "State"), box: { ...box, top: 600, bottom: 620 } }, [region])).toBe(true);
+  });
+
+  it("keeps a single bare number line, which could be a printed question number", () => {
+    expect(canStartQuestion({ words: words("4"), box }, [])).toBe(true);
   });
 });
 
@@ -75,6 +99,15 @@ describe("a real digital question paper", () => {
       expect(figure.width).toBeLessThan(0.5);
       expect(figure.height).toBeGreaterThan(0.05);
     }
+  });
+
+  it("finds the same figures when the questions are known only by their number, and is not fooled by the table's rows", async () => {
+    // A flat paper: questions 1 to 5, no labels. The PDF prints "1. (a)" for the first, and the table below question 2
+    // has rows that begin "1 4", "2 9", "3 13", which look like question numbers but are data.
+    const flat = [1, 2, 3, 4, 5].map((questionNumber) => ({ questionNumber, label: null }));
+    const result = await detectPaperFigures(pdf, flat);
+    expect(result.notes).toEqual([]);
+    expect(result.figures.map((figure) => figure.questionNumber)).toEqual([1, 2, 4]);
   });
 
   it("keeps a figure with no question when the numbers cannot be found, and says so", async () => {
