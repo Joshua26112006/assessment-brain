@@ -9,6 +9,7 @@ import RubricEditor from "./RubricEditor";
 import RubricViewer, { type RubricViewerApproach, type RubricViewerCheckpoint } from "./RubricViewer";
 import RetryRubricButton from "./RetryRubricButton";
 import SchemeApproval, { type SchemeCriterionView } from "./SchemeApproval";
+import { FIGURE_REFERENCE_NOTE, referencesFigure } from "@/lib/questions/figureReference";
 
 export type QuestionCardData = {
   id: string;
@@ -124,6 +125,7 @@ export default function QuestionCard({ question }: { question: QuestionCardData 
               ) : (
                 <StatusBadge label="Needs your approval" tone="warning" size="sm" />
               )}
+              {referencesFigure(question.questionText) && <StatusBadge label="Mentions a figure" tone="warning" size="sm" />}
               <span className="text-xs text-muted">
                 {activeVersion.solutionApproaches.length} approach
                 {activeVersion.solutionApproaches.length === 1 ? "" : "es"} ·{" "}
@@ -138,6 +140,12 @@ export default function QuestionCard({ question }: { question: QuestionCardData 
 
             {isRubricOpen && (
               <>
+                {referencesFigure(question.questionText) && (
+                  <p role="note" className="mt-3 rounded-lg border border-warning-line bg-warning-soft p-3 text-xs text-warning">
+                    {FIGURE_REFERENCE_NOTE}
+                  </p>
+                )}
+
                 <RubricViewer
                   rubric={{
                     versionNumber: activeVersion.versionNumber,
