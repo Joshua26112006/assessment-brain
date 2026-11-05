@@ -1,4 +1,5 @@
 import { parseNumericExpression } from "@/lib/structuredCorrection/numericExpression";
+import { checkUnit, convertToUnit, parseUnit, splitQuantity } from "@/lib/structuredCorrection/units";
 import type {
   ComparisonError,
   ComparisonErrorType,
@@ -60,6 +61,55 @@ function possibleUnitConversion(expected: number, actual: ExtractedValue): boole
   const exponent = Math.log10(Math.abs(actual.parsed / expected));
   const nearest = Math.round(exponent);
   return nearest !== 0 && Math.abs(nearest) <= 9 && Math.abs(exponent - nearest) < 1e-6;
+}
+
+/**
+ * How a student's value relates to the key's, once units are taken into account
+ * (decision D11).
+ *
+ *   legacy       — the key carries no unit (a rubric written before units were kept):
+ *                  the older, cautious handling applies (see possibleUnitConversion).
+ *   same         — the key has a unit and the student wrote none: the bare numbers are compared.
+ *   converted    — both units are known and measure the same quantity: the student's number,
+ *                  expressed in the key's unit.
+ *   incomparable — the student's unit is a different quantity, or one we do not recognise:
+ *                  no claim about the VALUE is made (a UNIT criterion is judged separately).
+ */
+type UnitResolution =
+  | { mode: "legacy" }
+  | { mode: "same" }
+  | { mode: "converted"; value: number }
+  | { mode: "incomparable" };
+
+function resolveUnits(expected: ExtractedValue, actual: ExtractedValue): UnitResolution {
+  const keyUnit = expected.unit ? parseUnit(expected.unit) : null;
+  if (!keyUnit || actual.parsed === null) return { mode: "legacy" };
+
+  const written = checkUnit(expected.unit, actual.raw);
+  if (written === "absent") return { mode: "same" };
+  if (written === "unknown") return { mode: "incomparable" };
+
+  const studentUnitText = splitQuantity(actual.raw).unitText;
+  const studentUnit = studentUnitText ? parseUnit(studentUnitText) : null;
+  if (!studentUnit) return { mode: "incomparable" };
+  const converted = convertToUnit(actual.parsed, studentUnit, keyUnit);
+  return converted === null ? { mode: "incomparable" } : { mode: "converted", value: converted };
+}
+
+/** The student's value as it should be compared with the key, or null when no value claim can be made. */
+function effectiveActual(expected: ExtractedValue, actual: ExtractedValue): ExtractedValue | null {
+  const resolution = resolveUnits(expected, actual);
+  if (resolution.mode === "incomparable") return null;
+  if (resolution.mode === "converted") return { raw: String(resolution.value), parsed: resolution.value };
+  return actual;
+}
+
+/** True when a difference between the two values may simply be a different unit, so no mistake can be claimed. */
+function unitMayExplainDifference(expected: ExtractedValue, actual: ExtractedValue): boolean {
+  const resolution = resolveUnits(expected, actual);
+  if (resolution.mode === "incomparable") return true;
+  if (resolution.mode === "legacy" && expected.parsed !== null) return possibleUnitConversion(expected.parsed, actual);
+  return false;
 }
 
 const SUBSCRIPT_DIGITS = "₀₁₂₃₄₅₆₇₈₉";
@@ -243,13 +293,18 @@ function compareValue(
 ): PendingError | null {
   if (expected.parsed === null || actual.parsed === null) return null;
 
+  // Units first: a correct value in another unit is correct, and a different
+  // quantity makes no claim about the value at all.
+  const comparable = effectiveActual(expected, actual);
+  if (comparable === null) return null;
+
   const tolerance = numericTolerance(expected.parsed);
-  if (matchesExpected(expected.parsed, actual)) return null;
-  if (possibleUnitConversion(expected.parsed, actual)) return null;
+  if (matchesExpected(expected.parsed, comparable)) return null;
+  if (unitMayExplainDifference(expected, actual)) return null;
 
   // Right magnitude, wrong sign is a specific, recognisable slip worth naming
   // rather than reporting as an arbitrary wrong value.
-  if (matchesExpected(-expected.parsed, actual)) {
+  if (matchesExpected(-expected.parsed, comparable)) {
     return { type: "SIGN_ERROR", expected, actual, comparisonMethod: "sign_check" };
   }
 
@@ -265,7 +320,8 @@ function compareValue(
 function valuesMatchNumerically(expected: ExtractedValue | null, actual: ExtractedValue | null): boolean {
   if (!expected || !actual) return false;
   if (expected.parsed === null || actual.parsed === null) return false;
-  return matchesExpected(expected.parsed, actual);
+  const comparable = effectiveActual(expected, actual);
+  return comparable !== null && matchesExpected(expected.parsed, comparable);
 }
 
 interface ApproachComparison {
@@ -310,7 +366,7 @@ function compareAgainstApproach(
   const finalAnswerKnownWrong =
     !reading.studentAnswer ||
     (answerConfirmed && reading.studentAnswer.parsed !== null && !reachedCorrectAnswer &&
-      !(correctAnswer?.parsed != null && possibleUnitConversion(correctAnswer.parsed, reading.studentAnswer)));
+      !(correctAnswer?.parsed != null && unitMayExplainDifference(correctAnswer, reading.studentAnswer)));
 
   for (const [expectedName, expectedValue] of expectedEntries) {
     const found = lookupStudentValue(studentValues, expectedName);

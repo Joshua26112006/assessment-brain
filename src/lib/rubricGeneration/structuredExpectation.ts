@@ -1,4 +1,5 @@
 import { parseNumericExpression } from "@/lib/structuredCorrection/numericExpression";
+import { splitQuantity } from "@/lib/structuredCorrection/units";
 import {
   PROBLEM_TYPES,
   UNSOLVABLE_REASONS,
@@ -46,7 +47,7 @@ export function buildStructuredExpectationInstructions(): string {
     "7. solvable: true ONLY if this question reduces to one definite, checkable final value (e.g. \"find the mode\", \"calculate the probability\"). Set it to false for a proof, a construction, an explanation, or any question with more than one legitimately different final answer — that is a normal and expected outcome, not a failure.",
     "8. unsolvableReason: required when solvable is false, and must be exactly one of: \"conceptual_question\", \"proof_based\", \"multiple_valid_answers\", \"diagram_required\", \"insufficient_information\", \"other\". Omit it entirely when solvable is true.",
     "9. problemType: exactly one of \"mean\", \"median\", \"mode\", \"range\", \"probability\", \"algebra\", \"coordinate_geometry\". If the question genuinely fits none of these, or you are not confident, use \"unknown\" — never force a guess.",
-    "10. correctAnswer: the single correct final value, written plainly (e.g. \"34.17\", \"5/12\", \"20\"). Use an empty string when solvable is false. Do not add words, units, or commentary — just the value.",
+    "10. correctAnswer: the single correct final value, written plainly (e.g. \"34.17\", \"5/12\", \"20\"). If the quantity has a unit, write the unit after the number using standard symbols (e.g. \"4 m/s^2\", \"120 J\", \"2 g\"); a unit is part of the answer. Use an empty string when solvable is false. Add no other words or commentary.",
     "11. approaches: ONE entry for each entry in solutionApproaches above, in the SAME ORDER, with the SAME label. For each, give the specific named quantities that approach actually uses, with the correct value for each, taken from the data in the question (e.g. {\"L\": \"30\", \"f1\": \"15\", \"f0\": \"9\", \"f2\": \"8\", \"h\": \"10\"}). Write each value as plain text exactly as it should be — never as a worded sentence. Use {} only if the approach genuinely has no named quantities. Use [] for approaches when solvable is false.",
     "12. Never invent a variable the question does not support, and never round a value differently from how the question states it.",
   ].join("\n");
@@ -59,7 +60,8 @@ function toTrimmed(value: unknown, maxLength: number): string {
 /** Every numeric value is evaluated by our own parser — never taken from the model. */
 function toExtractedValue(value: unknown): ExtractedValue {
   const raw = toTrimmed(value, MAX_VALUE_LENGTH);
-  return { raw, parsed: raw ? parseNumericExpression(raw) : null };
+  const unit = raw ? splitQuantity(raw).unitText : null;
+  return { raw, parsed: raw ? parseNumericExpression(raw) : null, ...(unit ? { unit } : {}) };
 }
 
 function toProblemType(value: unknown): ProblemType {

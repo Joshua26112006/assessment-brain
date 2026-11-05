@@ -1,9 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { compareReadingToRubric, numericTolerance } from "@/lib/structuredCorrection/comparisonEngine";
 import { parseNumericExpression } from "@/lib/structuredCorrection/numericExpression";
+import { splitQuantity } from "@/lib/structuredCorrection/units";
 import type { ExtractedValue, ReconciledReading, StructuredExpectation } from "@/types/structuredCorrection";
 
-const value = (raw: string): ExtractedValue => ({ raw, parsed: parseNumericExpression(raw) });
+/** Like production: the unit written with a value is kept alongside the number our own parser reads. */
+const value = (raw: string): ExtractedValue => {
+  const unit = splitQuantity(raw).unitText;
+  return { raw, parsed: parseNumericExpression(raw), ...(unit ? { unit } : {}) };
+};
 const values = (entries: Record<string, string>) =>
   Object.fromEntries(Object.entries(entries).map(([name, raw]) => [name, value(raw)]));
 
@@ -206,10 +211,55 @@ describe("compareReadingToRubric — the two reading passes", () => {
   });
 });
 
-describe("compareReadingToRubric — units", () => {
-  it("2000 mg for an expected 2 (same quantity, another unit) makes no claim (interim rule until Phase 2 unit conversion)", () => {
+describe("compareReadingToRubric — units (a key that carries its unit)", () => {
+  it("2000 mg for an expected 2 g is correct: a real conversion, not a guess", () => {
+    const r = reading({ transcription: "mass = 2000 mg", answer: "2000 mg" });
+    expect(findings(r, rubric("2 g", {}))).toEqual([]);
+  });
+
+  it("2000 g for an expected 2 g is wrong: the same slip a missing conversion would hide", () => {
+    const r = reading({ transcription: "mass = 2000 g", answer: "2000 g" });
+    expect(findings(r, rubric("2 g", {}))).toEqual(["ARITHMETIC_ERROR"]);
+  });
+
+  it("250 mL for an expected 0.25 L is correct", () => {
+    const r = reading({ transcription: "V = 250 mL", answer: "250 mL" });
+    expect(findings(r, rubric("0.25 L", {}))).toEqual([]);
+  });
+
+  it("forgetting to convert mL to L is caught: 250 L for an expected 0.25 L", () => {
+    const r = reading({ transcription: "V = 250 L", answer: "250 L" });
+    expect(findings(r, rubric("0.25 L", {}))).toEqual(["ARITHMETIC_ERROR"]);
+  });
+
+  it("an equivalent unit written differently is correct: 10 kg m/s^2 for 10 N", () => {
+    const r = reading({ transcription: "F = 10 kg m/s^2", answer: "10 kg m/s^2" });
+    expect(findings(r, rubric("10 N", {}))).toEqual([]);
+  });
+
+  it("a different quantity makes no claim about the value (5 m for an expected 5 s): the UNIT criterion judges it", () => {
+    const r = reading({ transcription: "t = 5 m", answer: "5 m" });
+    expect(findings(r, rubric("5 s", {}))).toEqual([]);
+  });
+
+  it("a unit the module does not know makes no claim", () => {
+    const r = reading({ transcription: "d = 5 furlongs", answer: "5 furlongs" });
+    expect(findings(r, rubric("1000 m", {}))).toEqual([]);
+  });
+
+  it("no unit written compares the bare numbers", () => {
+    expect(findings(reading({ transcription: "m = 2", answer: "2" }), rubric("2 g", {}))).toEqual([]);
+    expect(findings(reading({ transcription: "m = 3", answer: "3" }), rubric("2 g", {}))).toEqual(["ARITHMETIC_ERROR"]);
+  });
+
+  it("a key with no unit keeps the older cautious rule: a power-of-ten difference with a unit written makes no claim", () => {
     const r = reading({ transcription: "mass = 2000 mg", answer: "2000 mg" });
     expect(findings(r, rubric("2", { n: "0.05" }))).toEqual([]);
+  });
+
+  it("converts the unit of the key's own variables too", () => {
+    const r = reading({ transcription: "m = 2000 mg, answer 2 g", variables: { m: "2000 mg" }, answer: "2 g" });
+    expect(findings(r, rubric("2 g", { m: "2 g" }))).toEqual([]);
   });
 });
 

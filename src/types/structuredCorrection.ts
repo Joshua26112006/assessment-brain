@@ -19,6 +19,14 @@
 export interface ExtractedValue {
   raw: string;
   parsed: number | null;
+  /**
+   * The unit written with this value, when it is one the unit module recognises
+   * ("m/s^2", "mg"). Stored on the rubric's correct answer so the comparison
+   * engine can convert (2000 mg = 2 g) and a UNIT criterion can check it. Absent
+   * on rubrics written before units were kept, which fall back to the older,
+   * more cautious handling.
+   */
+  unit?: string | null;
 }
 
 /**
