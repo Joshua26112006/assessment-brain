@@ -55,6 +55,16 @@ export function responsesVisibleToStudent<
   }));
 }
 
+/**
+ * May the AI's own written feedback reach the student? (Owner's decision, Nov 5.) Only while the teacher accepted the
+ * AI's mark as it was. Once the teacher has changed the mark, text the AI wrote for the old mark could contradict the
+ * new one, so it is withheld and the student reads the teacher's own comment instead. Any change counts, even one
+ * that lands on the same number: it errs on the side of withholding.
+ */
+export function aiFeedbackMayReachStudent(gradingResult: { teacherReview?: { action?: string } | null } | null | undefined): boolean {
+  return gradingResult?.teacherReview?.action !== "OVERRIDDEN";
+}
+
 /** Whether a student may be sent a teacher-marked-up copy of a page (`?annotated=1`). */
 export function mayServeAnnotatedPage(submission: ReleasableSubmission): boolean {
   return isReleasedForStudent(submission);

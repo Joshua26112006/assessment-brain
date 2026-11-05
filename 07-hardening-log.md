@@ -42,7 +42,7 @@ After each: 16 users, 9 submissions, 48 responses, 0 mark events, 0 released —
 
 ## Problems found while building: 50 (problems 5, 6, 8, 9, 42, 47, 48 and 49 were fixed in later batches)
 
-**28 fixed · 12 accepted or observations · 10 open (need you, or a later fix).** Problems 39 to 50 came from the final browser walkthrough, described in its own section below the deviations.
+**30 fixed · 15 accepted, decided or observations · 5 open (need you, or a later fix).** Problems 39 to 50 came from the final browser walkthrough, described in its own section below the deviations.
 
 ### Found when the Phase 1 screens were clicked through in a browser
 
@@ -50,7 +50,7 @@ After each: 16 users, 9 submissions, 48 responses, 0 mark events, 0 released —
 | --- | --- | --- |
 | 1 | On the marked copy, questions whose number could not be found were drawn at one guessed spot, stacked on top of each other; a kept mistake's ring was silently missing. | **Fixed (Phase 6).** A mark is drawn only where the question's own marker was found; after release the teacher is told which questions and kept mistakes could not be placed. |
 | 2 | Page markers like `Q1.` were not recognised, and a marker the text detector was unsure of is skipped. | **Fixed for the forms** (Phase 3: `Q.1`, `Q 1`, `Q1.`, `Ans 1`, `1(a)`, `(a)`, `ii)`…). A low-confidence marker is still skipped on purpose; it is now reported instead of silent (see 1). |
-| 3 | The AI's "Feedback" paragraph reaches the student without the teacher approving it, and can contradict a mark the teacher changed (Q2 was changed from 4 to 1; the student still read text written for 4). | **Open — decision 2.** |
+| 3 | The AI's "Feedback" paragraph reaches the student without the teacher approving it, and can contradict a mark the teacher changed (Q2 was changed from 4 to 1; the student still read text written for 4). | **Fixed (owner decision, Nov 5).** The AI's feedback reaches the student only while you accepted its mark. Once you change the mark it is withheld and your own comment is shown; the comment box on the review screen says so. |
 | 4 | The history showed a raw "teacher_finding on question 1". | **Fixed.** Every event kind now has a plain description. |
 | 5 | The "Question 1 has not been checked yet" box stays on screen after the question is checked, until the next confirm attempt. | **Fixed.** A refusal is hidden as soon as the answers change (second batch). |
 | 6 | Before release the student sees "Not evaluated yet / still being marked" on every answer while the banner says the teacher is reviewing. | **Fixed.** Once marking has finished but nothing is released, every answer says "With your teacher" and one line that the mark appears on release. |
@@ -63,7 +63,7 @@ After each: 16 users, 9 submissions, 48 responses, 0 mark events, 0 released —
 | # | Problem | Status |
 | --- | --- | --- |
 | 10 | The manual rubric editor lost data on every save: it dropped the expected answer, partial-credit guidance, structured expectation, and each approach's steps and primary flag. That silently changed how a question was routed and marked. | **Fixed.** Every save is a new version that carries everything forward. |
-| 11 | Every existing rubric on the live database is now "waiting for approval" (the migration deliberately does not backfill, because that would claim a teacher approved something they did not). A *new* student submission to an already-published assessment is parked for the teacher until its schemes are approved. The 9 existing submissions are unaffected. | **Open — decision 1.** |
+| 11 | Every existing rubric on the live database is now "waiting for approval" (the migration deliberately does not backfill, because that would claim a teacher approved something they did not). A *new* student submission to an already-published assessment is parked for the teacher until its schemes are approved. The 9 existing submissions are unaffected. | **Decided: keep.** Existing rubrics stay "waiting for approval"; nothing is approved for you. Approve each paper once with "Approve all". |
 | 12 | My test helper `questions.map(questionRow)` passed the array index as the new `approved` argument; ten tests failed. | **Fixed** (test bug, mine). |
 | 13 | A test said the final answer was correct while marking its criterion "no". | **Fixed** (test bug, mine). |
 | 14 | `tsc` in a fresh worktree reports `LayoutProps` not found; Next.js generates that type when it runs. | **Accepted** (environment). |
@@ -83,7 +83,7 @@ After each: 16 users, 9 submissions, 48 responses, 0 mark events, 0 released —
 | --- | --- | --- |
 | 19 | A fully correct balanced equation scored 2/4: the scheme drafter had put 2 marks on "verifies the atoms balance". | **Fixed.** The drafter no longer puts marks on checks students do not write. |
 | 20 | That fix over-corrected: a correct method with an arithmetic slip fell to 0.5/4. | **Fixed.** Calculations keep method marks. |
-| 21 | A half-mark difference between the three runs is under D2's threshold, but made the median flip between repeats. | **Open — decision 3.** Any difference now flags the answer (stricter than D2). |
+| 21 | A half-mark difference between the three runs is under D2's threshold, but made the median flip between repeats. | **Decided: keep.** Any difference between the three runs flags the answer for launch. |
 | 22 | One malformed model reply cost a whole run (only network errors were retried). | **Fixed.** Retried within the run. |
 | 23 | "Final answer could not be checked automatically" fired when the key was simply not a number. | **Fixed.** |
 | 24 | The scheme drafter gives a different scheme each time it runs, so marks differ between sessions. | **Observation.** The teacher's approval is what settles it. |
@@ -94,7 +94,7 @@ After each: 16 users, 9 submissions, 48 responses, 0 mark events, 0 released —
 | # | Problem | Status |
 | --- | --- | --- |
 | 26 | One checkable question sent a whole paper down one route; a paper with none sent numeric working down the other. | **Fixed.** Each answer is routed by its own question. |
-| 27 | The old checkpoint route (used for explanations before) had "novel approach" detection. Handwritten answers no longer use that route. | **Open — decision 4.** |
+| 27 | The old checkpoint route (used for explanations before) had "novel approach" detection. Handwritten answers no longer use that route. | **Fixed (owner decision, Nov 5).** When the final answer is right but marks were lost and there is working, the AI says whether the different method looks valid, and the answer is flagged for you either way. The mark is never changed by it. |
 | 28 | No crop of a diagram is shown to the teacher; they see the whole page. | **Accepted.** |
 | 29 | Writing the mapping step missed (reader found an answer to a question with no answer row) was silently dropped. | **Fixed.** The teacher is told. |
 
@@ -113,7 +113,7 @@ After each: 16 users, 9 submissions, 48 responses, 0 mark events, 0 released —
 | 33 | Percent and decimal-comma answers are read only when asked for, but no per-question setting stores that yet, so such answers stay "cannot read" and go to a person. | **Open — decision 7.** |
 | 34 | There are no real double-marked scripts, so the launch numbers cannot be measured; `metrics.ts` has run only on synthetic sheets. | **Blocked on you — decision 6.** |
 | 35 | The plan asks for the full evaluation script 3 times on six papers. I ran the 5-repeat stability check and the metrics script (3 repeats, 2 papers) instead. | **Accepted.** |
-| 36 | Flag rate 40 to 50% on the synthetic sheets, above the plan's 30% example bar. | **Open — decision 3.** |
+| 36 | Flag rate 40 to 50% on the synthetic sheets, above the plan's 30% example bar. | **Decided: keep.** See 21. Revisit once real double-marked scripts show how often the AI is right. |
 | 37 | Model structured-output (`response_format: json_schema`) was not adopted: support for each configured model could not be verified without a live test per model. The JSON-extraction fallback is unchanged. | **Open.** |
 | 38 | The Gemini reading model's temperature was not changed (the plan says to measure and ask first). | **Open — your call.** |
 

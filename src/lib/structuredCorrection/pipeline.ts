@@ -6,6 +6,8 @@ import {
 } from "@/lib/structuredCorrection/explanationGenerator";
 import { scoreByCriteria } from "@/lib/structuredCorrection/criterionScoring";
 import { reconcileFindingsWithMarks } from "@/lib/structuredCorrection/findings";
+import { checkAlternativeMethod, methodCheckReason, needsMethodCheck } from "@/lib/structuredCorrection/alternativeMethod";
+import { hasWorking } from "@/lib/structuredCorrection/criterionScoring";
 import { explanationAgreesWithFinding, withoutUnsupportedErrors } from "@/lib/structuredCorrection/findingChecks";
 import type { QuestionScore } from "@/lib/structuredCorrection/scoring";
 import type { Scheme } from "@/lib/scheme/criteria";
@@ -164,7 +166,39 @@ export async function correctStructuredQuestion(input: StructuredQuestionInput):
           mistakesWithheld: true,
         };
 
-  const score = scoreOutcome.status === "fulfilled" ? scoreOutcome.value : null;
+  let score = scoreOutcome.status === "fulfilled" ? scoreOutcome.value : null;
+
+  // A right answer that lost marks for method may be a valid different method. The AI gives an opinion; the answer
+  // is flagged for the teacher either way, and the mark is never changed by it.
+  if (
+    score?.marking &&
+    needsMethodCheck({
+      flags: score.marking.flags,
+      hasWorking: hasWorking(input.reading),
+      awardedMarks: score.awardedMarks,
+      maximumMarks: score.maximumMarks,
+    })
+  ) {
+    const check = await checkAlternativeMethod({
+      questionText: input.questionText,
+      subject: input.subject,
+      expectedAnswer: input.expectedAnswer,
+      criteria: input.scheme.criteria,
+      transcription: input.reading.transcription,
+    });
+    if (check) {
+      const reason = methodCheckReason(check);
+      score = {
+        ...score,
+        marking: {
+          ...score.marking,
+          unsure: true,
+          reasons: score.marking.reasons.includes(reason) ? score.marking.reasons : [...score.marking.reasons, reason],
+          alternativeMethod: check,
+        },
+      };
+    }
+  }
 
   // A mark and a mistake must not contradict each other: the marks decide what is shown.
   const explanations = score

@@ -7,6 +7,7 @@ import { parseAnnotationResult, parseGradingResult } from "@/lib/pipeline/parseR
 import { describeEvaluationProgress, summarizeSubmissionScore } from "@/lib/submission-score";
 import {
   AWAITING_RELEASE,
+  aiFeedbackMayReachStudent,
   isReleasedForStudent,
   responsesVisibleToStudent,
   studentFacingStatus,
@@ -344,7 +345,7 @@ function renderOutcome(
   const annotation = parseAnnotationResult(response.annotationResult);
   if (!annotation) return null;
 
-  return <FeedbackDetails annotation={annotation} />;
+  return <FeedbackDetails annotation={annotation} showAiText={aiFeedbackMayReachStudent(grading)} />;
 }
 
 /**
@@ -352,8 +353,9 @@ function renderOutcome(
  * teacher's own note first, then the generated summary and per-checkpoint
  * notes. Nothing here is fabricated when a section is missing.
  */
-function FeedbackDetails({ annotation }: { annotation: AnnotationResult }) {
-  const aiAnnotation = annotation.aiAnnotation;
+function FeedbackDetails({ annotation, showAiText }: { annotation: AnnotationResult; showAiText: boolean }) {
+  // Once the teacher has changed the mark, the AI's wording (written for the old mark) is not shown.
+  const aiAnnotation = showAiText ? annotation.aiAnnotation : undefined;
   const teacherFeedback = annotation.teacherFeedback;
 
   return (
@@ -387,7 +389,7 @@ function FeedbackDetails({ annotation }: { annotation: AnnotationResult }) {
         </div>
       )}
 
-      {annotation.entries.length > 0 && (
+      {showAiText && annotation.entries.length > 0 && (
         <details className="group">
           <summary className="cursor-pointer list-none text-xs font-semibold uppercase tracking-wide text-muted">
             How this was marked

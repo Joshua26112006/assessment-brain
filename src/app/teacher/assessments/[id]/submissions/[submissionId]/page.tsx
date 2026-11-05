@@ -360,6 +360,16 @@ function AnswerCard({
               </div>
             )}
 
+            {response.marking?.alternativeMethod && (
+              <div className="rounded-lg border border-warning-line bg-warning-soft p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-warning">
+                  A different method — AI opinion: {response.marking.alternativeMethod.verdict === "valid" ? "looks valid" : response.marking.alternativeMethod.verdict === "invalid" ? "looks not valid" : "could not tell"}
+                </p>
+                <p className="mt-1 text-sm text-foreground">{response.marking.alternativeMethod.reason}</p>
+                <p className="mt-1 text-xs text-muted">This is only an opinion. The mark above was not changed by it. You decide.</p>
+              </div>
+            )}
+
             {aiFeedback && (
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wide text-muted">Why it was marked this way (AI draft)</p>

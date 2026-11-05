@@ -65,6 +65,10 @@ export interface MarkingDetail {
   reasons: string[];
   /** The model that marked, for the audit record. */
   model: string;
+  /** Marking flags raised (for example FINAL_ANSWER_CORRECT_NOT_FULL); absent on older results. */
+  flags?: string[];
+  /** The AI's opinion on a method that differs from the scheme. An opinion only: the mark is never changed by it. */
+  alternativeMethod?: { verdict: "valid" | "invalid" | "unclear"; reason: string };
 }
 
 interface RawScore {

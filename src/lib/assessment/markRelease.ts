@@ -122,6 +122,10 @@ export function markingOf(correctionResult: unknown): MarkingDetail | null {
     unsure: m.unsure === true,
     reasons: m.reasons.filter((r): r is string => typeof r === "string"),
     model: typeof m.model === "string" ? m.model : "",
+    ...(Array.isArray(m.flags) ? { flags: m.flags.filter((f): f is string => typeof f === "string") } : {}),
+    ...(m.alternativeMethod && ["valid", "invalid", "unclear"].includes(m.alternativeMethod.verdict) && typeof m.alternativeMethod.reason === "string"
+      ? { alternativeMethod: m.alternativeMethod }
+      : {}),
   };
 }
 

@@ -309,6 +309,7 @@ export async function scoreByCriteria(input: CriterionScoringInput): Promise<Que
       unsure: reasons.length > 0 || runsDisagree(totals, input.maximumMarks),
       reasons,
       model: JUDGE_MODEL,
+      flags,
     },
   };
 }

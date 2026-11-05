@@ -110,6 +110,9 @@ export default function AnswerReviewForm({
         <label htmlFor={`note-${responseId}`} className="block text-xs font-medium text-muted">
           Comment for the student <span className="font-normal text-subtle">(shown when you release)</span>
         </label>
+        <p className="mt-0.5 text-xs text-subtle">
+          If you change the mark, the AI&apos;s feedback is not shown to the student: write your own comment here instead.
+        </p>
         <textarea
           id={`note-${responseId}`}
           name="note"
