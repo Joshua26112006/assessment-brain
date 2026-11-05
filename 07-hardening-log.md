@@ -40,9 +40,9 @@ These are the items that are genuinely yours. Everything else in this log is eit
 
 After each: 16 users, 9 submissions, 48 responses, 0 mark events, 0 released — unchanged. Phases 4, 6 and 7 changed no schema.
 
-## Problems found while building: 50
+## Problems found while building: 50 (problems 5, 6, 8, 9, 42 and 47 were fixed in a second batch)
 
-**20 fixed · 12 accepted or observations · 18 open (need you, or a later fix).** Problems 39 to 50 came from the final browser walkthrough, described in its own section below the deviations.
+**26 fixed · 12 accepted or observations · 12 open (need you, or a later fix).** Problems 39 to 50 came from the final browser walkthrough, described in its own section below the deviations.
 
 ### Found when the Phase 1 screens were clicked through in a browser
 
@@ -52,11 +52,11 @@ After each: 16 users, 9 submissions, 48 responses, 0 mark events, 0 released —
 | 2 | Page markers like `Q1.` were not recognised, and a marker the text detector was unsure of is skipped. | **Fixed for the forms** (Phase 3: `Q.1`, `Q 1`, `Q1.`, `Ans 1`, `1(a)`, `(a)`, `ii)`…). A low-confidence marker is still skipped on purpose; it is now reported instead of silent (see 1). |
 | 3 | The AI's "Feedback" paragraph reaches the student without the teacher approving it, and can contradict a mark the teacher changed (Q2 was changed from 4 to 1; the student still read text written for 4). | **Open — decision 2.** |
 | 4 | The history showed a raw "teacher_finding on question 1". | **Fixed.** Every event kind now has a plain description. |
-| 5 | The "Question 1 has not been checked yet" box stays on screen after the question is checked, until the next confirm attempt. | **Open (polish).** |
-| 6 | Before release the student sees "Not evaluated yet / still being marked" on every answer while the banner says the teacher is reviewing. | **Open (polish).** |
+| 5 | The "Question 1 has not been checked yet" box stays on screen after the question is checked, until the next confirm attempt. | **Fixed.** A refusal is hidden as soon as the answers change (second batch). |
+| 6 | Before release the student sees "Not evaluated yet / still being marked" on every answer while the banner says the teacher is reviewing. | **Fixed.** Once marking has finished but nothing is released, every answer says "With your teacher" and one line that the mark appears on release. |
 | 7 | A question the student never answered was reported as "still being evaluated". | **Fixed.** It now says "not answered". |
-| 8 | Each release leaves the previous marked image file on disk (the database pointer is cleared; the file is not deleted). | **Open (minor).** |
-| 9 | The total circle can overlap the header text on the marked copy. | **Open (cosmetic).** |
+| 8 | Each release leaves the previous marked image file on disk (the database pointer is cleared; the file is not deleted). | **Fixed.** The files of the copies a release clears are deleted after it commits; a redrawn copy deletes the one it replaces. |
+| 9 | The total circle can overlap the header text on the marked copy. | **Fixed.** The total goes in the first spot that covers no writing, tick or circled mark: top right, middle, top left, then down the right edge. |
 
 ### Phase 2 — teacher approves every scheme
 
@@ -150,12 +150,12 @@ Done in a throwaway copy of the app on a scratch database schema, never the live
 | 39 | The confirm-marks list said "Question 6 has no mark yet" when the paper calls that question "Question 4". Messages used the internal number, not the label ("1(a)", "4"). The same slip was in the readiness messages, rubric pages, dashboard, review queue, student question paper and the per-question score chips. | **Fixed.** Labels are used everywhere; a unit test covers the confirm list. |
 | 40 | Rough work was drawn struck through, so it looked like crossed-out work (the label beside it was struck as well). | **Fixed.** Only crossed-out work is struck through; rough work is just greyed. |
 | 41 | "1 marks" instead of "1 mark" on the question cards, the student's paper and results, and the teacher's review. | **Fixed.** |
-| 42 | A mistake the AI listed ("You did not include θ = 0°") sits beside a scheme item about that angle that was awarded. The mark is right; the two read as contradicting each other. | **Open.** The teacher can remove the mistake with one click. The finding is checked against its own step, not against every scheme item. |
+| 42 | A mistake the AI listed ("You did not include θ = 0°") sits beside a scheme item about that angle that was awarded. The mark is right; the two read as contradicting each other. | **Fixed.** A "you did not write X" mistake is dropped when an awarded scheme item names X (its variable or its expected value as a whole word). |
 | 43 | The AI drafted "Newton's second law" as three equal key points, including "rate of change of momentum", so the plain answer "force equals mass times acceleration" got 1.5 of 3. The scheme is a draft; this is why the teacher approves it. | **Observation.** Not a code fault. |
 | 44 | One rubric draft failed ("Could not extract valid JSON from the AI response") and showed the existing Retry button. | **Observation.** Handled, but it shows the scheme drafter occasionally returns unusable output. |
 | 45 | The OpenRouter key refused the old whole-sheet reading call: "can only afford 32550 tokens" while that call asks for up to 65,536. This is a limit on the key, not a code fault, and the call is old code (Phase 5 did not touch it). For the walkthrough the reading summary was written by hand and the new page-by-page reading and marking ran for real. | **Needs you.** Check the key's credit limit before testing live. The old call asks for far more tokens than it uses. |
 | 46 | A question whose own marker was crossed out (the MCQ "3. C" struck, then "B") gets no mark drawn on the copy. The release message says so, and its mark is still in the total and the student's results. | **Accepted** (a mark is never drawn at a guessed spot). |
-| 47 | On the marked copy, the mark symbols sit on top of the question label ("1(a)") and the total circle covers the "Page 1/2" header on this sheet. Where the margin is wider on a real sheet this may not happen. | **Open (cosmetic).** Same as problem 9. |
+| 47 | On the marked copy, the mark symbols sit on top of the question label ("1(a)") and the total circle covers the "Page 1/2" header on this sheet. Where the margin is wider on a real sheet this may not happen. | **Fixed.** The tick, double stroke or cross is drawn in the margin left of the question's own marker; the old fixed span is used only when that margin is too narrow. |
 | 48 | The scheme panel's "Follow-through" setting is shown for descriptive questions where it means nothing, and the rubric is shown twice (as the rubric and again as the marking scheme). | **Open (polish).** |
 | 49 | The scheme-approval list showed "1 approach · 0 checkpoints" for an exact-answer (MCQ) scheme. | **Open (polish).** |
 | 50 | The unused older typed-answer form (`AnswerForm.tsx`) still shows the question number. It is not shown anywhere. | **Left as is.** |
