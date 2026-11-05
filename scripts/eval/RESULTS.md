@@ -55,3 +55,31 @@ Reading this honestly:
   A 16-page term booklet reads 16 pages twice, so expect several times that.
 
 The go or no-go bar for launch is the owner's call.
+
+## Reading temperature, 0.1 against 1.0 (Nov 6, 2026): `readtemp.ts`
+
+Six synthetic sheets (one page each), three repeats each, both reading passes, same model. Accuracy is how close the
+transcription is to the handwriting the sheet was drawn from (1 means identical).
+
+| Temperature | Answers read | Accuracy | Both passes agree | Read word for word the same in all repeats | Failed runs | Cost |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0.1 (now) | 72 | 0.867 | 96% (69/72) | 21 of 26 answers | 0 of 18 | $0.31 |
+| 1.0 | 72 | 0.866 | 97% (70/72) | 24 of 26 answers | 0 of 18 | $0.31 |
+
+No difference in accuracy or agreement, and no looping or failures at either setting. Repeat steadiness is slightly
+better at 1.0 (3 more answers identical), but with three repeats on clean synthetic fonts that is within noise. There
+is no evidence for changing the setting, so it stays at 0.1. Worth repeating on real handwriting, where reading is harder.
+
+## Metrics on the synthetic sheets, current code (Nov 5, 2026, later run)
+
+After the alternative-method check, the number-format ticks, standard aliases, the reply-length default and strict
+structured output. Same two sheets, 3 repeats.
+
+| Subject | Exact | Within 1 mark | False findings on correct answers | Flag rate | Repeat stability | Cost per script |
+| --- | --- | --- | --- | --- | --- | --- |
+| Physics | 40% (2/5) | 100% (5/5) | 0% (0/2) | 20% (1/5) | 100% | $0.029 |
+| Chemistry | 75% (3/4) | 100% (4/4) | 0% (0/3) | 25% (1/4) | 100% | $0.027 |
+
+The flag rate is now under the plan's example bar of 30%; the remaining flags were genuine borderline calls between
+runs. Still two synthetic one-page sheets, and the scheme drafter gives a slightly different scheme on each run, so
+this is an encouraging sign and not a launch number.

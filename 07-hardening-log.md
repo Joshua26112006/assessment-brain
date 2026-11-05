@@ -43,7 +43,7 @@ After each: 16 users, 9 submissions, 48 responses, 0 mark events, 0 released —
 
 ## Problems found while building: 51 (problems 5, 6, 8, 9, 42, 47, 48, 49 and 51 were fixed in later batches)
 
-**32 fixed · 15 accepted, decided or observations · 4 open (need you, or a later fix).** Problems 39 to 50 came from the final browser walkthrough, described in its own section below the deviations.
+**35 fixed · 15 accepted, decided or observations · 1 open (need you, or a later fix).** Problems 39 to 50 came from the final browser walkthrough, described in its own section below the deviations.
 
 ### Found when the Phase 1 screens were clicked through in a browser
 
@@ -115,8 +115,8 @@ After each: 16 users, 9 submissions, 48 responses, 0 mark events, 0 released —
 | 34 | There are no real double-marked scripts, so the launch numbers cannot be measured; `metrics.ts` has run only on synthetic sheets. | **Blocked on you — decision 6.** |
 | 35 | The plan asks for the full evaluation script 3 times on six papers. I ran the 5-repeat stability check and the metrics script (3 repeats, 2 papers) instead. | **Accepted.** |
 | 36 | Flag rate 40 to 50% on the synthetic sheets, above the plan's 30% example bar. | **Decided: keep.** See 21. Revisit once real double-marked scripts show how often the AI is right. |
-| 37 | Model structured-output (`response_format: json_schema`) was not adopted: support for each configured model could not be verified without a live test per model. The JSON-extraction fallback is unchanged. | **Open.** |
-| 38 | The Gemini reading model's temperature was not changed (the plan says to measure and ask first). | **Not measured yet.** The test needs model calls, and the key is out of credit (see 45). One partial run at 0.1 read 19 answers at 0.805 similarity to what was drawn with both passes agreeing every time; 1.0 could not run. Rerun `scripts/eval/readtemp.ts` once the key works. |
+| 37 | Model structured-output (`response_format: json_schema`) was not adopted: support for each configured model could not be verified without a live test per model. The JSON-extraction fallback is unchanged. | **Fixed.** The marking reply and the method check ask the provider for strict JSON schemas; a provider that answers 400 or 422 to the schema is asked again without it, and the caller's own parsing is unchanged. Verified live on the judge and reader models. Page reading stays on JSON extraction (its free-named variables cannot be a strict schema). |
+| 38 | The Gemini reading model's temperature was not changed (the plan says to measure and ask first). | **Decided: leave at 0.1.** Measured on six synthetic sheets, three repeats: accuracy 0.867 at 0.1 and 0.866 at 1.0, both passes agreed 96% and 97%, no failures or looping at either. No evidence for changing; worth repeating on real handwriting. |
 
 ## Defaults chosen where the plan said "ask the owner"
 
@@ -154,7 +154,7 @@ Done in a throwaway copy of the app on a scratch database schema, never the live
 | 42 | A mistake the AI listed ("You did not include θ = 0°") sits beside a scheme item about that angle that was awarded. The mark is right; the two read as contradicting each other. | **Fixed.** A "you did not write X" mistake is dropped when an awarded scheme item names X (its variable or its expected value as a whole word). |
 | 43 | The AI drafted "Newton's second law" as three equal key points, including "rate of change of momentum", so the plain answer "force equals mass times acceleration" got 1.5 of 3. The scheme is a draft; this is why the teacher approves it. | **Observation.** Not a code fault. |
 | 44 | One rubric draft failed ("Could not extract valid JSON from the AI response") and showed the existing Retry button. | **Observation.** Handled, but it shows the scheme drafter occasionally returns unusable output. |
-| 45 | The OpenRouter key refused the old whole-sheet reading call: "can only afford 32550 tokens" while that call asks for up to 65,536. This is a limit on the key, not a code fault, and the call is old code (Phase 5 did not touch it). For the walkthrough the reading summary was written by hand and the new page-by-page reading and marking ran for real. | **Needs you, urgent.** On Nov 5 the key answered "403 Key limit exceeded (total limit): $50.01 of $50.00 used; does not reset". Every model call, in the live app too, fails until the key's limit is raised or a new key is set. The earlier 402 ("can only afford 32550 tokens") was the same limit approaching. Also: the old whole-sheet reading call asks for up to 65,536 tokens. |
+| 45 | The OpenRouter key refused the old whole-sheet reading call: "can only afford 32550 tokens" while that call asks for up to 65,536. This is a limit on the key, not a code fault, and the call is old code (Phase 5 did not touch it). For the walkthrough the reading summary was written by hand and the new page-by-page reading and marking ran for real. | **Fixed.** The key limit was raised on Nov 6 and model calls work again. |
 | 46 | A question whose own marker was crossed out (the MCQ "3. C" struck, then "B") gets no mark drawn on the copy. The release message says so, and its mark is still in the total and the student's results. | **Accepted** (a mark is never drawn at a guessed spot). |
 | 47 | On the marked copy, the mark symbols sit on top of the question label ("1(a)") and the total circle covers the "Page 1/2" header on this sheet. Where the margin is wider on a real sheet this may not happen. | **Fixed.** The tick, double stroke or cross is drawn in the margin left of the question's own marker; the old fixed span is used only when that margin is too narrow. |
 | 48 | The scheme panel's "Follow-through" setting is shown for descriptive questions where it means nothing, and the rubric is shown twice (as the rubric and again as the marking scheme). | **Fixed.** The two rules show only for a calculation (working plus a final answer); other questions say there is nothing to set. The marking breakdown is no longer listed twice. |
@@ -185,7 +185,7 @@ Done after the owner's answers, all with unit tests, all committed on the same b
 
 **Checked in the browser and fine:** approving a structured paper (numbers locked, structure explained, uncertain question marked "Please double-check"); the two number-format ticks and the rules showing only where they apply; the figure badge and note; the alternative-method opinion box and the flag; changing a mark with a comment (the student then sees only your comment, while an accepted answer still shows the AI feedback); "With your teacher" and nothing else before release; the "scheme changed" item in the review queue after editing a confirmed answer's scheme.
 
-**Still open from the owner's list:** diagram handling (deferred to a later talk), the OpenRouter key limit (#45), the temperature measurement (#38) and the json_schema test (#37) (both need the key), the real scripts (#34), and the branch review and merge.
+**Still open from the owner's list:** diagram handling (deferred to a later talk), the real scripts (#34), and the branch review and merge. The key limit (#45), the temperature measurement (#38) and the json_schema test (#37) were closed on Nov 6.
 ## Not verified, and why
 
 - (The paper-review screen and the "scheme changed" flag, listed here before, were opened in a browser in the later batches.)
