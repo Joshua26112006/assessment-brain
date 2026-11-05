@@ -1,5 +1,6 @@
 import { JUDGE_MODEL } from "@/lib/ai/models";
 import { callStructuredAi } from "@/lib/ai/callStructured";
+import { METHOD_CHECK_SCHEMA } from "@/lib/structuredCorrection/replySchemas";
 import type { SchemeCriterion } from "@/lib/scheme/criteria";
 
 /**
@@ -79,6 +80,7 @@ export async function checkAlternativeMethod(input: {
         temperature: 0,
         maxAttempts: 2,
         maxTokens: 500,
+        jsonSchema: METHOD_CHECK_SCHEMA,
         stage: "STRUCTURED_SCORING",
       });
       const parsed = parseMethodCheck(raw);

@@ -1,5 +1,6 @@
 import { JUDGE_MODEL } from "@/lib/ai/models";
 import { callStructuredAi } from "@/lib/ai/callStructured";
+import { CRITERION_REPLY_SCHEMA } from "@/lib/structuredCorrection/replySchemas";
 import { matchExactKey } from "@/lib/questions/exactKey";
 import { finalAnswerVerdict } from "@/lib/structuredCorrection/comparisonEngine";
 import {
@@ -213,6 +214,7 @@ async function oneRun(input: CriterionScoringInput, decided: Decided, run: numbe
           temperature: 0,
           maxAttempts: 3,
           maxTokens: 1200,
+          jsonSchema: CRITERION_REPLY_SCHEMA,
           stage: "STRUCTURED_SCORING",
         });
       } catch (error) {

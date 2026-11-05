@@ -33,6 +33,13 @@ export interface StructuredAiCallOptions {
    * is a worse failure than a slightly larger reservation.
    */
   maxTokens?: number;
+  /**
+   * Ask the provider to return JSON that follows this schema (strict structured output) rather than hoping the reply
+   * is parseable. A provider that refuses the schema is asked again without it, and the reply is parsed and validated
+   * by the caller exactly as before, so this can only reduce malformed replies, never replace the caller's checks.
+   * The schema must be strict-compatible: every property listed in `required`, `additionalProperties: false`.
+   */
+  jsonSchema?: { name: string; schema: Record<string, unknown> };
   /** The caller's own context label (e.g. "RUBRIC_GENERATION") — attributes AiCallLog rows back to a stage. */
   stage: string;
   /** Caller-supplied identifiers (questionId, submissionId, ...) for the AiCallLog row. Shape varies by stage. */
