@@ -43,9 +43,9 @@ These are the items that are genuinely yours. Everything else in this log is eit
 
 After each: 16 users, 9 submissions, 48 responses, 0 mark events, 0 released — unchanged. Phases 4, 6 and 7 changed no schema.
 
-## Problems found while building: 59 (problems 5, 6, 8, 9, 42, 47, 48, 49, 51, 52, 53 and 57 were fixed in later batches)
+## Problems found while building: 60 (problems 5, 6, 8, 9, 42, 47, 48, 49, 51, 52, 53 and 57 were fixed in later batches)
 
-**38 fixed · 17 accepted, decided or observations · 4 open (need you, or a later fix).** Problems 39 to 50 came from the final browser walkthrough, described in its own section below the deviations.
+**38 fixed · 17 accepted, decided or observations · 5 open (need you, or a later fix).** Problems 39 to 50 came from the final browser walkthrough, described in its own section below the deviations.
 
 ### Found when the Phase 1 screens were clicked through in a browser
 
@@ -192,14 +192,14 @@ Done after the owner's answers, all with unit tests, all committed on the same b
 
 The owner's direction: all diagram types and all subjects, in the question paper and in handwritten answers; the AI marks a diagram only when it is very clear and otherwise flags the teacher; question papers are digital PDFs; the correct diagram may come from the paper, from a model diagram the teacher uploads, or be absent, and every mode must work; the teacher still accepts every mark (D1).
 
-Plan, in order. Steps 1 to 3 are built; 4 and 5 are not.
+Plan, in order. Steps 1 to 4 are built; 5 is not.
 
 | Step | What | State |
 | --- | --- | --- |
 | 1 | Find the figures, graphs and tables of a digital question paper (render each PDF page, read the PDF's exact text positions, find drawings as the marks that are not text, crop them, tie each to the question it follows) and store them | **Built.** Migration `20261106100000` applied to live (one new table, two enums). Tested on a real PDF printed from Chrome and in the browser. |
 | 2 | Show the figures on each question card, let the teacher place a figure that follows no question, add or remove one, upload a model diagram; give the figures to the question check and to the scheme drafter | **Built.** Verified live: with a table attached the checker no longer says the table is missing, and the drafter built the scheme from the table's real numbers. A model diagram makes the drafter write the checklist as visible yes/no features. |
 | 3 | Find and crop a diagram on a student's sheet by two independent methods (non-text ink in the question's region, and the reader model's box); use the crop only when they agree | **Built.** Migration `20261106120000` applied to live (one new table). Checked end to end through the real evaluation function with real text detection and the real model: one crop, on the right page, tied to the diagram question, found by both methods, answer still parked for the teacher as before. |
-| 4 | Judge a diagram: a checklist run three times with images, median, marks added in code; unflagged only when every condition for "very clear" holds, otherwise flagged | Not started. The card still says "you mark this one" for diagram questions. |
+| 4 | Judge a diagram: a checklist run three times with images, median, marks added in code; unflagged only when every condition for "very clear" holds, otherwise flagged | **Built.** No schema change. A diagram answer is no longer only parked: it gets a draft mark, flagged for the teacher unless very clear. Nothing found or nothing judged still parks the answer. Measured live, see below. |
 | 5 | Review screen: the crop beside the reference, the checklist with evidence, and a way to redraw the crop box | Not started. |
 
 | # | Problem found while building | Status |
@@ -211,7 +211,20 @@ Plan, in order. Steps 1 to 3 are built; 4 and 5 are not.
 | 56 | Rotated PDF pages are not handled by the text positions. | **Open (rare).** |
 | 57 | A notebook's ruled lines are marks that are not writing. On a ruled page they joined a diagram's box and stretched it across the page; a rule that a drawing interrupts also split into pieces too short to be recognised as a rule. | **Fixed** (found by a test on a real drawn notebook page). Faint long runs are removed first, and a run carries on across dark ink. A dark pen axis is never removed. |
 | 58 | The ruled-line removal assumes straight, level lines and a clear difference between faint rules and darker ink. A tilted photo, or a drawing in very light pencil, can leave rules in the ink or take part of the drawing out. | **Open, handled by design:** that diagram is then not found by both methods, so it is not confident and goes to the teacher. To be measured on real photographed scripts. |
+| 60 | Even with a reference and three agreeing runs, the checker can be wrong and the mark still unflagged. | **Open, by design:** the teacher accepts every mark. It must be measured on real diagram scripts (marked by two teachers) before the "very clear" bar is trusted. |
 | 59 | The model's own idea of where a diagram is can be looser or tighter than the ink's. | **Handled:** a diagram is confident only where the two overlap by at least half, and the crop covers both. |
+
+**How a diagram mark is decided (step 4).** The checker (the strongest configured model, `VERIFY_MODEL`) is shown the student's crop, the paper's figure and the model diagram, and answers each checklist item yes, no or unclear with a short description of what it saw. It never gives a mark; code adds up the "yes" items. Three runs, each with the items in a different order. A mark is shown unflagged only when ALL of these hold: the crop was found by both methods; every run rated the drawing's legibility high; all three runs completed and agree on every item; no item is unclear; every item has a description; and there is a model diagram or paper figure to compare with. Otherwise the draft is shown flagged with the reasons. About $0.03 per diagram.
+
+**Measured live (step 4), one real student drawing, the same drawing judged twice:**
+
+| | With a model diagram | With no reference |
+| --- | --- | --- |
+| Draft mark (out of 3) | 2.5, all three runs 2.5 | 2, all three runs 2 |
+| Flagged for the teacher | **No** (very clear) | **Yes**: "no model diagram or figure to compare with" |
+| Right? | Yes: axis, lens, parallel ray and crossing ray found, arrowheads correctly missing | One item wrong: it said no ray arrives at the lens, though one does |
+
+The second row is why "no reference" always flags: in that run all three runs agreed on the wrong answer, so agreement between runs alone is not enough to trust a diagram mark. With a reference it was right here, but this is one drawing, not a measurement. The real accuracy on handwriting is unknown until real diagram scripts, marked by two teachers, are run through it.
 
 **Checked end to end (step 3):** a diagram question on a real drawn sheet, through `evaluateHandwrittenSubmission` with real text detection and the real model: the page with the drawing gave one confident crop for the diagram question and the text-only page gave none; a failure to find diagrams is logged and changes nothing else.
 
