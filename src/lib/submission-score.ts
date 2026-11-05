@@ -1,4 +1,5 @@
 import { parseGradingResult } from "@/lib/pipeline/parseResults";
+import { paperTotals, wasAttempted } from "@/lib/questions/paperScore";
 
 /**
  * One deterministic answer to "what is this submission's score right now?",
@@ -27,6 +28,13 @@ export interface QuestionResultSummary {
   teacherReviewed: boolean;
   /** False when the student never saved an answer for this question. */
   answered: boolean;
+  /** This answer's marks are in the total. False for an alternative that did not count (see overAttempt). */
+  counted: boolean;
+  /**
+   * The student answered this AND a better alternative counts instead ("(a) OR (b)", "any 5 of 7"):
+   * shown with a * and left out of the total (decision D14).
+   */
+  overAttempt: boolean;
 }
 
 export interface SubmissionScoreSummary {
@@ -58,15 +66,22 @@ interface ResponseLike {
   questionId: string;
   status: string;
   gradingResult: unknown;
+  /** Used to tell an answer the student wrote from a question recorded as not attempted. */
+  studentAnswer?: unknown;
 }
 
 function round(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
+/**
+ * `questionTree` is the assessment's stored structure (parts, choices, optional groups). Omitted or
+ * null, the paper is a flat list, which is how every paper behaved before structure existed.
+ */
 export function summarizeSubmissionScore(
   questions: QuestionLike[],
   responses: ResponseLike[],
+  questionTree: unknown = null,
 ): SubmissionScoreSummary {
   const responseByQuestionId = new Map(responses.map((r) => [r.questionId, r]));
 
@@ -81,6 +96,8 @@ export function summarizeSubmissionScore(
       awardedMarks: null,
       teacherReviewed: false,
       answered: Boolean(response),
+      counted: true,
+      overAttempt: false,
     };
 
     if (!response) return { ...base, state: "PENDING" as const };
@@ -108,17 +125,47 @@ export function summarizeSubmissionScore(
 
   const confirmed = summaries.filter((q) => q.state === "CONFIRMED");
 
+  // The paper's structure decides what counts: parts add up, the better of "(a) OR (b)" counts, and
+  // "any N of M" counts the best N. Answers still waiting for a mark are not yet counted either way.
+  const responseById = new Map(responses.map((response) => [response.questionId, response]));
+  const confirmedIds = new Set(confirmed.map((q) => q.questionId));
+  const attempted = (questionId: string) => {
+    const response = responseById.get(questionId);
+    // No studentAnswer on the object: the caller did not select it, so an existing response counts as written.
+    return Boolean(response) && (response!.studentAnswer === undefined ? true : wasAttempted(response!.studentAnswer));
+  };
+  const confirmedTotals = paperTotals(
+    questionTree,
+    summaries.map((q) => ({
+      questionId: q.questionId,
+      maximumMarks: confirmedIds.has(q.questionId) ? q.maximumMarks : 0,
+      awardedMarks: confirmedIds.has(q.questionId) ? q.awardedMarks : null,
+      attempted: confirmedIds.has(q.questionId) && attempted(q.questionId),
+    })),
+  );
+  const paper = paperTotals(
+    questionTree,
+    summaries.map((q) => ({ questionId: q.questionId, maximumMarks: q.maximumMarks, awardedMarks: null, attempted: false })),
+  );
+  for (const summary of summaries) {
+    const outcome = confirmedTotals.perLeaf.get(summary.questionId);
+    if (!outcome) continue;
+    summary.counted = outcome.counted;
+    summary.overAttempt = outcome.overAttempt;
+  }
+
   return {
     questions: summaries,
     totalQuestions: summaries.length,
     confirmedCount: confirmed.length,
     needsReviewCount: summaries.filter((q) => q.state === "NEEDS_REVIEW").length,
     failedCount: summaries.filter((q) => q.state === "FAILED").length,
-    pendingCount: summaries.filter((q) => q.state === "PENDING").length,
+    // A question the student never answered is not "still being evaluated"; it is counted on its own.
+    pendingCount: summaries.filter((q) => q.state === "PENDING" && q.answered).length,
     teacherReviewedCount: confirmed.filter((q) => q.teacherReviewed).length,
-    awardedMarks: round(confirmed.reduce((sum, q) => sum + (q.awardedMarks ?? 0), 0)),
-    confirmedMaximumMarks: round(confirmed.reduce((sum, q) => sum + q.maximumMarks, 0)),
-    totalMaximumMarks: round(summaries.reduce((sum, q) => sum + q.maximumMarks, 0)),
+    awardedMarks: confirmedTotals.awarded,
+    confirmedMaximumMarks: confirmedTotals.maximum,
+    totalMaximumMarks: paper.maximum,
     hasAnyConfirmed: confirmed.length > 0,
     allConfirmed: confirmed.length === summaries.length && summaries.length > 0,
   };
@@ -140,6 +187,8 @@ export function describeEvaluationProgress(summary: SubmissionScoreSummary): str
   if (summary.pendingCount > 0) parts.push(`${summary.pendingCount} still being evaluated`);
   if (summary.needsReviewCount > 0) parts.push(`${summary.needsReviewCount} awaiting teacher review`);
   if (summary.failedCount > 0) parts.push(`${summary.failedCount} could not be evaluated`);
+  const notAnswered = summary.questions.filter((q) => !q.answered).length;
+  if (notAnswered > 0) parts.push(`${notAnswered} not answered`);
 
   return parts.length > 0 ? `${parts.join(" · ")}.` : "Waiting for evaluation to start.";
 }

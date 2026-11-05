@@ -143,7 +143,7 @@ export default async function AssessmentSubmissionsPage({
       ) : (
         <ul className="mt-8 flex flex-col gap-3">
           {submissions.map((submission) => {
-            const summary = summarizeSubmissionScore(questions, submission.questionResponses);
+            const summary = summarizeSubmissionScore(questions, submission.questionResponses, assessment.questionTree);
             const responseIdByQuestionId = new Map(
               submission.questionResponses.map((r) => [r.questionId, r.id]),
             );

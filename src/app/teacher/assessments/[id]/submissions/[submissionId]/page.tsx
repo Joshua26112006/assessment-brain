@@ -2,7 +2,9 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireTeacherSession } from "@/lib/require-teacher";
 import { getOwnedAssessmentOrNotFound } from "@/lib/assessment-ownership";
-import { loadSubmissionReview, type ReviewAnswerRow } from "@/lib/assessment/markRelease";
+import { loadSubmissionReview, totalFor, type ReviewAnswerRow } from "@/lib/assessment/markRelease";
+import { labelOf } from "@/lib/questions/labels";
+import { paperTotals } from "@/lib/questions/paperScore";
 import { parseAnnotationResult, parseGradingResult } from "@/lib/pipeline/parseResults";
 import { compareForReview, roundMarks } from "@/lib/assessment/markReview";
 import { PageHeader, Card, Section, ScoreDisplay } from "@/components/ui/Page";
@@ -23,6 +25,12 @@ const EVENT_LABEL: Record<string, string> = {
   TEACHER_ACCEPT: "accepted the mark",
   TEACHER_CHANGE: "changed the mark",
   TEACHER_COMMENT: "edited a comment",
+  TEACHER_FINDING: "decided whether to keep a suggested mistake",
+  TEACHER_TRANSCRIPTION: "corrected what was read from the handwriting",
+  AI_DRAFT: "the AI drafted a mark",
+  AI_RUN: "the AI marked it again",
+  SCHEME_REAPPLIED: "marked again because the marking scheme changed",
+  RECHECK: "re-checked the mark",
   SUBMISSION_CONFIRMED: "confirmed the marks",
   SUBMISSION_RELEASED: "released the marks to the student",
   SUBMISSION_REOPENED: "reopened the submission",
@@ -75,7 +83,7 @@ export default async function ReviewSubmissionPage({
         reason: true,
         createdAt: true,
         actor: { select: { name: true } },
-        questionResponse: { select: { question: { select: { questionNumber: true } } } },
+        questionResponse: { select: { question: { select: { questionNumber: true, label: true } } } },
       },
     }),
   ]);
@@ -83,8 +91,21 @@ export default async function ReviewSubmissionPage({
   const stage: SubmissionStage = submission.releasedAt ? "RELEASED" : submission.confirmedAt ? "CONFIRMED" : "REVIEWING";
   const locked = stage !== "REVIEWING";
 
-  const awarded = roundMarks(rows.reduce((sum, row) => sum + (row.response?.awardedMarks ?? 0), 0));
-  const maximum = roundMarks(rows.reduce((sum, row) => sum + row.maximumMarks, 0));
+  // Through the paper's structure: parts add up, the better of "(a) OR (b)" counts, "any N of M" counts the best N.
+  const { awarded, maximum } = totalFor(assessment.questionTree, rows);
+  const overAttemptIds = new Set(
+    [...paperTotals(
+      assessment.questionTree,
+      rows.map((row) => ({
+        questionId: row.questionId,
+        maximumMarks: row.maximumMarks,
+        awardedMarks: row.response?.awardedMarks ?? null,
+        attempted: row.response !== null && row.response.studentAnswerText.trim().length > 0,
+      })),
+    ).perLeaf]
+      .filter(([, outcome]) => outcome.overAttempt)
+      .map(([questionId]) => questionId),
+  );
   const needAttention = rows.filter((row) => row.response && !row.attention.reviewed && row.attention.level !== "SURE").length;
   const sureLeft = rows.filter(
     (row) => row.response && !row.attention.reviewed && row.attention.level === "SURE" && !row.attention.needsMark,
@@ -149,7 +170,13 @@ export default async function ReviewSubmissionPage({
               ),
             )
             .map((row) => (
-            <AnswerCard key={row.questionId} row={row} submissionId={submission.id} locked={locked} />
+            <AnswerCard
+              key={row.questionId}
+              row={row}
+              submissionId={submission.id}
+              locked={locked}
+              overAttempt={overAttemptIds.has(row.questionId)}
+            />
           ))}
         </div>
       </Section>
@@ -182,13 +209,14 @@ export default async function ReviewSubmissionPage({
         ) : (
           <ul className="flex flex-col divide-y divide-line rounded-xl border border-line bg-surface text-sm">
             {events.map((event) => {
-              const questionNumber = event.questionResponse?.question.questionNumber;
+              const question = event.questionResponse?.question;
+              const questionLabel = question ? labelOf(question) : undefined;
               return (
                 <li key={event.id} className="flex flex-wrap items-baseline justify-between gap-2 px-4 py-2.5">
                   <span>
                     <span className="font-medium">{event.actor?.name ?? "The system"}</span>{" "}
                     {EVENT_LABEL[event.kind] ?? event.kind.toLowerCase()}
-                    {questionNumber !== undefined && ` on question ${questionNumber}`}
+                    {questionLabel !== undefined && ` on question ${questionLabel}`}
                     {event.kind === "TEACHER_CHANGE" && event.marks !== null && (
                       <>
                         {" "}
@@ -211,7 +239,18 @@ export default async function ReviewSubmissionPage({
   );
 }
 
-function AnswerCard({ row, submissionId, locked }: { row: ReviewAnswerRow; submissionId: string; locked: boolean }) {
+function AnswerCard({
+  row,
+  submissionId,
+  locked,
+  overAttempt,
+}: {
+  row: ReviewAnswerRow;
+  submissionId: string;
+  locked: boolean;
+  /** Answered, but a better alternative counts instead: marked, shown with a *, and left out of the total. */
+  overAttempt: boolean;
+}) {
   const { response, attention } = row;
   const badge = response ? LEVEL_BADGE[attention.level] : { label: "Not answered", tone: "neutral" as const };
   const grading = response ? parseGradingResult(response.gradingResult) : null;
@@ -224,8 +263,14 @@ function AnswerCard({ row, submissionId, locked }: { row: ReviewAnswerRow; submi
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-line p-5">
         <div className="min-w-0">
           <span className="text-xs font-medium text-subtle">
-            Question {row.questionNumber} · {row.maximumMarks} marks
+            Question {row.label} · {row.maximumMarks} marks
           </span>
+          {overAttempt && (
+            <p className="mt-1 text-xs font-medium text-info">
+              Over attempt (*): this question was answered more than once and a better answer counts. These marks are
+              kept and shown to the student with a *, but are not in the total.
+            </p>
+          )}
           <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed">{row.questionText}</p>
         </div>
         <div className="flex shrink-0 items-center gap-3">

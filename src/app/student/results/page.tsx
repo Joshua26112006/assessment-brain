@@ -21,12 +21,14 @@ export default async function StudentResultsPage() {
         select: {
           title: true,
           subject: true,
+          questionTree: true,
           questions: { select: { id: true, questionNumber: true, maximumMarks: true } },
         },
       },
       // annotationResult is selected only so the release helper can strip it; it is never rendered here.
+      // studentAnswer tells an answer the student wrote from a question recorded as not attempted.
       questionResponses: {
-        select: { questionId: true, status: true, gradingResult: true, annotationResult: true },
+        select: { questionId: true, status: true, gradingResult: true, annotationResult: true, studentAnswer: true },
       },
     },
   });
@@ -56,6 +58,7 @@ export default async function StudentResultsPage() {
             const summary = summarizeSubmissionScore(
               submission.assessment.questions,
               responsesVisibleToStudent(submission, submission.questionResponses),
+              submission.assessment.questionTree,
             );
             const badge = submissionBadge(studentFacingStatus(submission), "student");
 

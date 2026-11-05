@@ -134,6 +134,12 @@ model Assessment {
   /// 3.3) — see QuestionPaper below.
   instructions String? @db.Text
 
+  /// Hardening Phase 3 — how the paper's questions nest (src/lib/questions/tree.ts):
+  /// parts that all count, "(a) OR (b)" choices, and "attempt any N of M" groups,
+  /// with each leaf pointing at a Question row. Null means a flat list of
+  /// questions, which is every assessment created before this field existed.
+  questionTree Json?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -246,9 +252,24 @@ model Question {
   id             String     @id @default(cuid())
   assessmentId   String
   assessment     Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  /// A unique ordinal for this question within the assessment. Every stage of the
+  /// pipeline identifies a question by it. For a paper with parts, each part is its
+  /// own row with its own ordinal, and `label` is what the student wrote.
   questionNumber Int
   questionText   String     @db.Text
   maximumMarks   Decimal    @db.Decimal(5, 2)
+
+  /// What the paper calls this question and what students write: "3", "3(b)",
+  /// "3(b)(ii)". Null on questions created before parts existed; they read as
+  /// String(questionNumber).
+  label String?
+
+  /// How this question is marked (decision D4): a number, a short or descriptive
+  /// answer, an essay, an exact key (MCQ, one word, a name), or a diagram. Null
+  /// means "not decided yet"; the system then infers it from the rubric. The AI
+  /// only suggests it; the teacher confirms.
+  answerType QuestionAnswerType?
+
   createdAt      DateTime   @default(now())
   updatedAt      DateTime   @updatedAt
 
@@ -262,6 +283,16 @@ model Question {
 // ---------------------------------------------------------------------------
 // Rubric + RubricVersion
 // ---------------------------------------------------------------------------
+
+/// Decision D4 of 06-correction-hardening-plan.md.
+enum QuestionAnswerType {
+  NUMERIC
+  SHORT_TEXT
+  DESCRIPTIVE
+  ESSAY
+  EXACT_KEY
+  DIAGRAM
+}
 
 /// Decision D10 of 06-correction-hardening-plan.md.
 enum FollowThroughRule {

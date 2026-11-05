@@ -120,6 +120,8 @@ export interface QuestionMark {
   column: AnswerColumn;
   awardedMarks: number;
   maximumMarks: number;
+  /** Answered, but a better alternative counts instead: marked * and left out of the total (decision D14). */
+  overAttempt?: boolean;
 }
 
 export interface OverlayInput {
@@ -169,6 +171,7 @@ export function buildOverlaySvg(input: OverlayInput): string {
     }
 
     elements.push(drawCircledMarks(scoreX[question.column], y, question.awardedMarks));
+    if (question.overAttempt) elements.push(drawAsterisk(scoreX[question.column] + 62, y - 30));
   }
 
   for (const mistake of input.mistakes) {
@@ -203,6 +206,19 @@ function drawCross(startX: number, endX: number, y: number): string {
     `<line x1="${cx - 28}" y1="${y - 28}" x2="${cx + 28}" y2="${y + 28}" stroke="${RED}" stroke-width="7.5" stroke-linecap="round"/>`,
     `<line x1="${cx + 28}" y1="${y - 28}" x2="${cx - 28}" y2="${y + 28}" stroke="${RED}" stroke-width="7.5" stroke-linecap="round"/>`,
   ].join("\n");
+}
+
+/** A star beside the marks: this answer was marked but is not in the total (an over attempt). Built from strokes, like the digits. */
+export function drawAsterisk(cx: number, cy: number): string {
+  const arm = 16;
+  return [0, 60, 120]
+    .map((degrees) => {
+      const radians = (degrees * Math.PI) / 180;
+      const dx = Math.cos(radians) * arm;
+      const dy = Math.sin(radians) * arm;
+      return `<line x1="${(cx - dx).toFixed(1)}" y1="${(cy - dy).toFixed(1)}" x2="${(cx + dx).toFixed(1)}" y2="${(cy + dy).toFixed(1)}" stroke="${RED}" stroke-width="5" stroke-linecap="round"/>`;
+    })
+    .join("\n");
 }
 
 function drawCircledMarks(cx: number, cy: number, awarded: number): string {

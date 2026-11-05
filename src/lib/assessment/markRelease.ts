@@ -1,5 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { labelOf } from "@/lib/questions/labels";
+import { paperTotals } from "@/lib/questions/paperScore";
 import { parseAnnotationResult, parseGradingResult } from "@/lib/pipeline/parseResults";
 import { stageResultBase } from "@/lib/pipeline/stageResult";
 import { recalculateSubmissionStatus } from "@/lib/assessment/submissionStatusSync";
@@ -62,6 +64,8 @@ const LOCKED_MESSAGE = "This submission has been confirmed. Reopen it to change 
 export interface ReviewAnswerRow {
   questionId: string;
   questionNumber: number;
+  /** What the paper calls this question and what students write: "3", "3(b)". */
+  label: string;
   questionText: string;
   maximumMarks: number;
   /** Null when the student has no response row for this question. */
@@ -128,7 +132,7 @@ export async function loadSubmissionReview(
     db.question.findMany({
       where: { assessmentId },
       orderBy: { questionNumber: "asc" },
-      select: { id: true, questionNumber: true, questionText: true, maximumMarks: true },
+      select: { id: true, questionNumber: true, label: true, questionText: true, maximumMarks: true },
     }),
     db.questionResponse.findMany({
       where: { submissionId },
@@ -155,6 +159,7 @@ export async function loadSubmissionReview(
     const base = {
       questionId: question.id,
       questionNumber: question.questionNumber,
+      label: labelOf(question),
       questionText: question.questionText,
       maximumMarks: Number(question.maximumMarks),
     };
@@ -563,8 +568,32 @@ export async function setFindingKept(input: {
 async function loadOwnedSubmission(tx: Tx, submissionId: string, teacherId: string) {
   return tx.submission.findFirst({
     where: { id: submissionId, assessment: { teacherId } },
-    select: { id: true, status: true, assessmentId: true, confirmedAt: true, releasedAt: true },
+    select: {
+      id: true,
+      status: true,
+      assessmentId: true,
+      confirmedAt: true,
+      releasedAt: true,
+      assessment: { select: { questionTree: true } },
+    },
   });
+}
+
+/**
+ * The paper's total through its structure: parts add up, the better of "(a) OR (b)" counts, "any N of M" counts the
+ * best N, and an over attempt is left out. A flat paper (no stored structure) is the plain sum it always was.
+ */
+export function totalFor(rawTree: unknown, rows: ReviewAnswerRow[]): { awarded: number; maximum: number } {
+  const totals = paperTotals(
+    rawTree,
+    rows.map((row) => ({
+      questionId: row.questionId,
+      maximumMarks: row.maximumMarks,
+      awardedMarks: row.response?.awardedMarks ?? null,
+      attempted: row.response !== null && row.response.studentAnswerText.trim().length > 0,
+    })),
+  );
+  return { awarded: roundMarks(totals.awarded), maximum: roundMarks(totals.maximum) };
 }
 
 /** Accepts every answer that is sure, mark-bearing and not yet reviewed. Flagged answers are never touched. */
@@ -608,10 +637,7 @@ export async function confirmSubmission(input: { teacherId: string; submissionId
     if (!submission) return notFound();
 
     const rows = await loadSubmissionReview(tx, submission.id, submission.assessmentId);
-    const total = (list: ReviewAnswerRow[]) => ({
-      awarded: roundMarks(list.reduce((sum, row) => sum + (row.response?.awardedMarks ?? 0), 0)),
-      maximum: roundMarks(list.reduce((sum, row) => sum + row.maximumMarks, 0)),
-    });
+    const total = (list: ReviewAnswerRow[]) => totalFor(submission.assessment?.questionTree ?? null, list);
 
     if (submission.confirmedAt) {
       const { awarded, maximum } = total(rows);

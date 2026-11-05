@@ -33,6 +33,10 @@ export interface AnnotatablePage {
 
 export interface AnnotatableQuestion {
   questionNumber: number;
+  /** What the paper calls it and the student writes ("3(b)"); null reads as the question number. */
+  label?: string | null;
+  /** Answered, but a better alternative counts instead: drawn with a * and left out of the total. */
+  overAttempt?: boolean;
   awardedMarks: number;
   maximumMarks: number;
   /** Confirmed findings only — nothing unverified ever reaches the page. */
@@ -93,7 +97,7 @@ async function annotateOnePage(
 
   const analysis = await analysePage(
     page.buffer,
-    questions.map((question) => question.questionNumber),
+    questions.map((question) => ({ questionNumber: question.questionNumber, label: question.label ?? null })),
   );
 
   // Resolve each question to a position on THIS page, preferring the marker
@@ -135,6 +139,7 @@ async function annotateOnePage(
     column: marker.column,
     awardedMarks: question.awardedMarks,
     maximumMarks: question.maximumMarks,
+    overAttempt: question.overAttempt === true,
   }));
 
   const svg = buildOverlaySvg({ width, height, questions: questionMarks, mistakes, total });

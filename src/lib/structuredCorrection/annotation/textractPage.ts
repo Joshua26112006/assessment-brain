@@ -1,4 +1,5 @@
 import { DetectDocumentTextCommand, TextractClient, type Block } from "@aws-sdk/client-textract";
+import { locateMarkers, type MarkerTarget } from "@/lib/structuredCorrection/annotation/markers";
 
 /**
  * Locates things on a photographed answer sheet using AWS Textract's OCR:
@@ -36,14 +37,6 @@ export interface PageAnalysis {
   readingOrderWords: Block[];
 }
 
-/**
- * A match on text alone is not enough: a garbled scrawl Textract was unsure
- * about can coincidentally read as "(5)". Below this confidence the candidate
- * is skipped and the search continues, so at worst a question goes unmarked
- * rather than being marked in the wrong place.
- */
-const MIN_MARKER_CONFIDENCE = 70;
-
 let client: TextractClient | null = null;
 
 /**
@@ -68,19 +61,6 @@ function getTextractClient(): TextractClient {
     credentials: { accessKeyId, secretAccessKey },
   });
   return client;
-}
-
-function isQuestionMarker(wordText: string, questionNumber: number): boolean {
-  const text = wordText.trim();
-  const n = String(questionNumber);
-  return (
-    text === `${n})` ||
-    text === `${n}.` ||
-    text === `Q${n}` ||
-    text === `q${n}` ||
-    text === `(${n})` ||
-    text === n
-  );
 }
 
 /**
@@ -118,15 +98,15 @@ function buildReadingOrderWords(lines: Block[], wordById: Map<string, Block>): B
 /**
  * Reads the page and locates each question's marker.
  *
- * A real marker is always the FIRST word of its own printed line — a number
- * sitting mid-sentence (say "(2)" inside a frequency table) never is. Markers
- * are also searched strictly in ascending order, each starting after the
- * previous one's line, so an earlier question's own content can never be
- * mistaken for a later question's marker.
+ * A real marker is always the FIRST word or two of its own printed line — a
+ * number sitting mid-sentence (say "(2)" inside a frequency table) never is.
+ * Markers are also searched strictly in ascending order, each starting after
+ * the previous one's line, so an earlier question's own content can never be
+ * mistaken for a later question's marker. See markers.ts for the forms accepted.
  */
 export async function analysePage(
   imageBytes: Buffer,
-  questionNumbers: number[],
+  questions: MarkerTarget[],
 ): Promise<PageAnalysis> {
   const response = await getTextractClient().send(
     new DetectDocumentTextCommand({ Document: { Bytes: imageBytes } }),
@@ -143,39 +123,33 @@ export async function analysePage(
 
   const fullWidth = isFullWidthPage(words);
 
-  const linesWithLeadingWord = lines
+  // Each line as its leading words, top to bottom. The search itself (which forms count as a question
+  // label, in what order, with what confidence) is pure and tested in markers.ts.
+  const orderedLines = lines
     .map((line) => {
-      const firstChildId = line.Relationships?.find((rel) => rel.Type === "CHILD")?.Ids?.[0];
-      const firstWord = firstChildId ? wordById.get(firstChildId) : undefined;
-      return firstWord ? { line, firstWord } : null;
+      const childIds = line.Relationships?.find((rel) => rel.Type === "CHILD")?.Ids ?? [];
+      const lineWords = childIds.map((id) => wordById.get(id)).filter((word): word is Block => word !== undefined);
+      return lineWords.length > 0 ? { line, words: lineWords } : null;
     })
-    .filter((entry): entry is { line: Block; firstWord: Block } => entry !== null)
+    .filter((entry): entry is { line: Block; words: Block[] } => entry !== null)
     .sort((a, b) => (a.line.Geometry?.BoundingBox?.Top ?? 0) - (b.line.Geometry?.BoundingBox?.Top ?? 0));
 
+  const located = locateMarkers(
+    orderedLines.map((entry) => ({
+      words: entry.words.slice(0, 3).map((word) => ({ text: word.Text ?? "", confidence: word.Confidence ?? 0 })),
+    })),
+    questions,
+  );
+
   const markers = new Map<number, QuestionMarker>();
-  let searchFrom = 0;
-
-  for (const questionNumber of [...questionNumbers].sort((a, b) => a - b)) {
-    let matchIndex = -1;
-
-    for (let i = searchFrom; i < linesWithLeadingWord.length; i++) {
-      const word = linesWithLeadingWord[i].firstWord;
-      if (!isQuestionMarker(word.Text ?? "", questionNumber)) continue;
-      if ((word.Confidence ?? 0) < MIN_MARKER_CONFIDENCE) continue;
-      matchIndex = i;
-      break;
-    }
-
-    const box = matchIndex >= 0 ? linesWithLeadingWord[matchIndex].firstWord.Geometry?.BoundingBox : undefined;
-    if (matchIndex === -1 || !box) continue;
-
+  for (const [questionNumber, lineIndex] of located) {
+    const box = orderedLines[lineIndex].words[0].Geometry?.BoundingBox;
+    if (!box) continue;
     const markerMidX = (box.Left ?? 0) + (box.Width ?? 0) / 2;
     markers.set(questionNumber, {
       bbox: { left: box.Left ?? 0, top: box.Top ?? 0, width: box.Width ?? 0, height: box.Height ?? 0 },
       column: fullWidth ? "full" : markerMidX < 0.45 ? "left" : "right",
     });
-
-    searchFrom = matchIndex + 1;
   }
 
   return { markers, readingOrderWords: buildReadingOrderWords(lines, wordById) };

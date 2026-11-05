@@ -22,6 +22,7 @@ function row(number: number, overrides: Partial<NonNullable<ReviewAnswerRow["res
   return {
     questionId: `q${number}`,
     questionNumber: number,
+    label: String(number),
     questionText: `Question ${number}`,
     maximumMarks,
     response:

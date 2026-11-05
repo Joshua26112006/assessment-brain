@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { loadOrderedAnswerSheetPages } from "@/lib/handwritten/pages";
 import { loadSubmissionReview } from "@/lib/assessment/markRelease";
 import { roundMarks } from "@/lib/assessment/markReview";
+import { paperTotals } from "@/lib/questions/paperScore";
 import { annotateAnswerSheet, type AnnotatableQuestion } from "@/lib/structuredCorrection/annotation";
 import type { ErrorExplanation } from "@/types/structuredCorrection";
 
@@ -31,7 +32,7 @@ export async function generateMarkedCopy(submissionId: string): Promise<MarkedCo
   try {
     const submission = await prisma.submission.findUnique({
       where: { id: submissionId },
-      select: { id: true, assessmentId: true },
+      select: { id: true, assessmentId: true, assessment: { select: { questionTree: true } } },
     });
     if (!submission) return { ok: false, annotatedPages: 0, failedPages: 0, reason: "Submission not found." };
 
@@ -40,6 +41,18 @@ export async function generateMarkedCopy(submissionId: string): Promise<MarkedCo
     if (pages.length === 0) return { ok: true, annotatedPages: 0, failedPages: 0, reason: null };
 
     const rows = await loadSubmissionReview(prisma, submission.id, submission.assessmentId);
+
+    // What the paper is out of, and which answers count, come from the paper's structure: parts add up,
+    // the better of "(a) OR (b)" counts, "any N of M" counts the best N, and the rest are over attempts.
+    const totals = paperTotals(
+      submission.assessment?.questionTree ?? null,
+      rows.map((row) => ({
+        questionId: row.questionId,
+        maximumMarks: row.maximumMarks,
+        awardedMarks: row.response?.awardedMarks ?? null,
+        attempted: row.response !== null && row.response.studentAnswerText.trim().length > 0,
+      })),
+    );
 
     const questions: AnnotatableQuestion[] = rows.flatMap((row) => {
       if (!row.response) return [];
@@ -55,6 +68,8 @@ export async function generateMarkedCopy(submissionId: string): Promise<MarkedCo
       return [
         {
           questionNumber: row.questionNumber,
+          label: row.label,
+          overAttempt: totals.perLeaf.get(row.questionId)?.overAttempt === true,
           awardedMarks: row.response.awardedMarks ?? 0,
           maximumMarks: row.maximumMarks,
           explanations,
@@ -64,10 +79,7 @@ export async function generateMarkedCopy(submissionId: string): Promise<MarkedCo
     });
 
     // Out of the WHOLE paper, not only the questions the student answered.
-    const total = {
-      awarded: roundMarks(questions.reduce((sum, question) => sum + question.awardedMarks, 0)),
-      maximum: roundMarks(rows.reduce((sum, row) => sum + row.maximumMarks, 0)),
-    };
+    const total = { awarded: roundMarks(totals.awarded), maximum: roundMarks(totals.maximum) };
 
     const outcomes = await annotateAnswerSheet(
       pages.map((page) => ({

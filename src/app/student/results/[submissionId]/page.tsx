@@ -2,6 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { requireStudentSession } from "@/lib/require-student";
 import { getOwnedSubmissionOrNotFound } from "@/lib/student-assessment-access";
+import { labelOf } from "@/lib/questions/labels";
 import { parseAnnotationResult, parseGradingResult } from "@/lib/pipeline/parseResults";
 import { describeEvaluationProgress, summarizeSubmissionScore } from "@/lib/submission-score";
 import {
@@ -67,7 +68,7 @@ export default async function SubmissionResultPage({
   // and the teacher's submissions view can never disagree about what a
   // submission currently scores. Its rule: only fully-marked questions count;
   // everything else is reported separately, never counted as zero.
-  const summary = summarizeSubmissionScore(submission.assessment.questions, responses);
+  const summary = summarizeSubmissionScore(submission.assessment.questions, responses, submission.assessment.questionTree);
   const badge = submissionBadge(visibleStatus, "student");
 
   return (
@@ -176,10 +177,12 @@ export default async function SubmissionResultPage({
         <div className="flex flex-col gap-4">
           {submission.assessment.questions.map((question) => {
             const response = responseByQuestionId.get(question.id);
+            const overAttempt = summary.questions.find((item) => item.questionId === question.id)?.overAttempt === true;
             return (
               <QuestionResultCard
                 key={question.id}
-                questionNumber={question.questionNumber}
+                label={labelOf(question)}
+                overAttempt={overAttempt}
                 questionText={question.questionText}
                 maximumMarks={Number(question.maximumMarks)}
                 response={response}
@@ -199,12 +202,15 @@ export default async function SubmissionResultPage({
 }
 
 function QuestionResultCard({
-  questionNumber,
+  label,
+  overAttempt,
   questionText,
   maximumMarks,
   response,
 }: {
-  questionNumber: number;
+  label: string;
+  /** Answered, but a better alternative counts instead: shown with a * and left out of the total. */
+  overAttempt: boolean;
   questionText: string;
   maximumMarks: number;
   response:
@@ -227,7 +233,7 @@ function QuestionResultCard({
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-line p-5">
         <div className="min-w-0">
           <span className="text-xs font-medium text-subtle">
-            Question {questionNumber} · {maximumMarks} marks
+            Question {label} · {maximumMarks} marks
           </span>
           <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed">{questionText}</p>
         </div>
@@ -235,6 +241,7 @@ function QuestionResultCard({
           {isMarked && grading && (
             <p className="text-xl font-semibold tabular-nums">
               {grading.awardedMarks}
+              {overAttempt && <span aria-label="over attempt">*</span>}
               <span className="text-sm text-subtle"> / {grading.maximumMarks || maximumMarks}</span>
             </p>
           )}
@@ -251,6 +258,13 @@ function QuestionResultCard({
               )
             : <span className="italic text-subtle">You didn&apos;t answer this question.</span>}
         </p>
+
+        {overAttempt && (
+          <p className="mt-3 text-xs text-muted">
+            * You answered more of this question than was needed. This answer was marked, but a better one counts
+            towards your total, so these marks are not added.
+          </p>
+        )}
 
         <div className="mt-4">{renderOutcome(response)}</div>
       </div>
