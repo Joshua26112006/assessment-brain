@@ -169,14 +169,25 @@ function indexStudentValues(variables: Record<string, ExtractedValue>): StudentV
   return { exact, loose };
 }
 
+/**
+ * Finds the student's value for a quantity by the rubric's name for it, or by any alias the scheme lists
+ * for it ("u", "v0" and "initial velocity" are one quantity). An alias is an intended synonym, so a match
+ * on it is as exact as a match on the name itself.
+ */
 function lookupStudentValue(
   index: StudentValueIndex,
   name: string,
+  aliases: string[] = [],
 ): { value: ExtractedValue; exact: boolean } | null {
-  const exact = index.exact.get(exactVariableKey(name));
-  if (exact) return { value: exact, exact: true };
-  const loose = index.loose.get(looseVariableKey(name));
-  return loose ? { value: loose, exact: false } : null;
+  for (const candidate of [name, ...aliases]) {
+    const exact = index.exact.get(exactVariableKey(candidate));
+    if (exact) return { value: exact, exact: true };
+  }
+  for (const candidate of [name, ...aliases]) {
+    const loose = index.loose.get(looseVariableKey(candidate));
+    if (loose) return { value: loose, exact: false };
+  }
+  return null;
 }
 
 /**
@@ -269,10 +280,10 @@ function confirmedBySecondPass(
   return value.raw.trim().toLowerCase() === other.raw.trim().toLowerCase();
 }
 
-function secondPassVariable(reading: ReconciledReading, name: string): ExtractedValue | null | undefined {
+function secondPassVariable(reading: ReconciledReading, name: string, aliases: string[] = []): ExtractedValue | null | undefined {
   if (reading.secondPass === undefined) return undefined;
   if (reading.secondPass === null) return null;
-  const found = lookupStudentValue(indexStudentValues(reading.secondPass.variables), name);
+  const found = lookupStudentValue(indexStudentValues(reading.secondPass.variables), name, aliases);
   return found ? found.value : null;
 }
 
@@ -369,7 +380,17 @@ function compareAgainstApproach(
   const workingNumbers = numbersInWorking(reading);
 
   let matchedVariableCount = 0;
-  const expectedEntries = Object.entries(approach.variables);
+  // A quantity whose value IS the final answer (the rubric lists "R_eq = 2.4" and the answer is 2.4) is the
+  // final answer again: the final-answer comparison already covers it, and checking it twice only produces a
+  // second, redundant finding about the same number.
+  const expectedEntries = Object.entries(approach.variables).filter(
+    ([, value]) =>
+      !(
+        correctAnswer?.parsed != null &&
+        value.parsed != null &&
+        Math.abs(value.parsed - correctAnswer.parsed) <= numericTolerance(correctAnswer.parsed)
+      ),
+  );
 
   // A student who arrived at the right final answer cannot have skipped a step
   // needed to reach it, so a quantity we failed to find is our reader missing
@@ -395,7 +416,8 @@ function compareAgainstApproach(
       !(correctAnswer?.parsed != null && unitMayExplainDifference(correctAnswer, reading.studentAnswer)));
 
   for (const [expectedName, expectedValue] of expectedEntries) {
-    const found = lookupStudentValue(studentValues, expectedName);
+    const aliases = approach.aliases?.[expectedName] ?? [];
+    const found = lookupStudentValue(studentValues, expectedName, aliases);
 
     if (!found) {
       // Absence is only evidence when nothing else explains it. Each of these
@@ -403,7 +425,7 @@ function compareAgainstApproach(
       // find this value (so it is our reader that disagrees, not the student);
       // only one pass ran, so nothing could be cross-checked; or the value is
       // plainly in their working, just not given a name.
-      const otherPassValue = secondPassVariable(reading, expectedName);
+      const otherPassValue = secondPassVariable(reading, expectedName, aliases);
       const explainedAway =
         !finalAnswerKnownWrong ||
         (otherPassValue !== undefined && otherPassValue !== null) ||
@@ -428,7 +450,7 @@ function compareAgainstApproach(
     // (m vs M) may be a different quantity, and a value the two passes read
     // differently may be our misreading — either way, not a student's mistake.
     if (!found.exact) continue;
-    if (!confirmedBySecondPass(reading, found.value, secondPassVariable(reading, expectedName))) continue;
+    if (!confirmedBySecondPass(reading, found.value, secondPassVariable(reading, expectedName, aliases))) continue;
     const mismatch = compareValue(expectedValue, found.value, "WRONG_SUBSTITUTION");
     if (mismatch) {
       errors.push({ id: nextErrorId(), variable: expectedName, ...mismatch, dependsOn: [] });

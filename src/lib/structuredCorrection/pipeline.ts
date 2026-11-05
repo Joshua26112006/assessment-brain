@@ -6,6 +6,7 @@ import {
 } from "@/lib/structuredCorrection/explanationGenerator";
 import { scoreByCriteria } from "@/lib/structuredCorrection/criterionScoring";
 import { reconcileFindingsWithMarks } from "@/lib/structuredCorrection/findings";
+import { explanationAgreesWithFinding, withoutUnsupportedErrors } from "@/lib/structuredCorrection/findingChecks";
 import type { QuestionScore } from "@/lib/structuredCorrection/scoring";
 import type { Scheme } from "@/lib/scheme/criteria";
 import type {
@@ -102,21 +103,31 @@ async function analyseErrors(
   }
 
   const explained = await generateExplanations(question, comparison, verification);
-  return {
-    comparison,
-    verification,
-    explanations:
-      explained.status === "generated"
-        ? explained.explanations
-        : buildUnverifiedExplanations(comparison.errors),
-    mistakesWithheld: false,
-  };
+
+  // A sentence about a finding may only use numbers the finding itself contains. One that brings in any other
+  // number was not written from the finding, so that finding falls back to the plain deterministic wording.
+  const errorById = new Map(comparison.errors.map((error) => [error.id, error]));
+  const explanations =
+    explained.status === "generated"
+      ? explained.explanations.map((explanation) => {
+          const error = errorById.get(explanation.errorId);
+          if (!error || explanationAgreesWithFinding(explanation.explanation, error)) return explanation;
+          return buildUnverifiedExplanations([error])[0] ?? explanation;
+        })
+      : buildUnverifiedExplanations(comparison.errors);
+
+  return { comparison, verification, explanations, mistakesWithheld: false };
 }
 
 export async function correctStructuredQuestion(input: StructuredQuestionInput): Promise<StructuredQuestionCorrection> {
   // The comparison is deterministic and cheap, so it runs first: marking uses what it established
   // (the final answer, units) and does not have to guess it again.
-  const initialComparison = compareReadingToRubric(input.reading, input.structuredExpectation);
+  // A finding that quotes a value the student never wrote is dropped (decision D15), and so is any finding
+  // that only existed as a consequence of it.
+  const initialComparison = withoutUnsupportedErrors(
+    compareReadingToRubric(input.reading, input.structuredExpectation),
+    input.reading.transcription,
+  );
 
   const [scoreOutcome, analysisOutcome] = await Promise.allSettled([
     scoreByCriteria({

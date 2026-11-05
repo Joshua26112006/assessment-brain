@@ -148,7 +148,13 @@ describe("compareReadingToRubric — real mistakes are still reported", () => {
 
   it("a whole-number answer for 2.45 is not accepted as rounding", () => {
     const r = reading({ transcription: "= 2", answer: "2" });
-    expect(findings(r, rubric("2.45", { a: "2.45" }))).toEqual(["MISSING_STEP(a)", "ARITHMETIC_ERROR"]);
+    // The only rubric variable (a = 2.45) IS the final answer, so it is not reported a second time as "missing".
+    expect(findings(r, rubric("2.45", { a: "2.45" }))).toEqual(["ARITHMETIC_ERROR"]);
+  });
+
+  it("a rubric quantity that is the final answer again is not reported on top of the final answer", () => {
+    const r = reading({ transcription: "R = 2 ohm", answer: "2" });
+    expect(findings(r, rubric("2.4", { R_eq: "2.4", r1: "4", r2: "6" }))).not.toContain("MISSING_STEP(R_eq)");
   });
 
   it("wrong rounding (2.5 for 2.449) is reported", () => {
@@ -299,5 +305,33 @@ describe("numericTolerance", () => {
 
   it("is relative for large values", () => {
     expect(numericTolerance(1000)).toBeCloseTo(5, 9);
+  });
+});
+
+describe("compareReadingToRubric — variable aliases (a student names a quantity differently)", () => {
+  const key = (aliases?: Record<string, string[]>): StructuredExpectation => {
+    const base = rubric("100", { u: "8", a: "2" });
+    return aliases ? { ...base, approaches: [{ ...base.approaches[0], aliases }] } : base;
+  };
+  const wrongInitial = () =>
+    reading({ transcription: "initial speed = 3, a = 2, answer 120", variables: { "initial speed": "3", a: "2" }, answer: "120" });
+
+  it("without an alias the student's differently-named value is not found, so the quantity reads as missing", () => {
+    expect(findings(wrongInitial(), key())).toContain("MISSING_STEP(u)");
+  });
+
+  it("with the alias the value is found, and a wrong one is reported as a wrong substitution, not as missing", () => {
+    const result = findings(wrongInitial(), key({ u: ["initial speed", "v0"] }));
+    expect(result).toContain("WRONG_SUBSTITUTION(u)");
+    expect(result).not.toContain("MISSING_STEP(u)");
+  });
+
+  it("a correct value under an alias raises nothing", () => {
+    const r = reading({ transcription: "initial speed = 8, a = 2, answer 100", variables: { "initial speed": "8", a: "2" }, answer: "100" });
+    expect(findings(r, key({ u: ["initial speed"] }))).toEqual([]);
+  });
+
+  it("an alias the student never wrote changes nothing", () => {
+    expect(findings(wrongInitial(), key({ u: ["v0"] }))).toContain("MISSING_STEP(u)");
   });
 });

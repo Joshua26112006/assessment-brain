@@ -172,7 +172,9 @@ export async function submitSubmissionDecision(
         "Released. The student can now see their marks." +
         (copy.ok && copy.failedPages === 0
           ? ""
-          : " The marked-up copy of their pages could not be fully drawn, so they will see their own pages without marks on them."),
+          : " The marked-up copy of their pages could not be fully drawn, so they will see their own pages without marks on them.") +
+        // What could not be placed on their pages, so nothing is missing without you knowing.
+        (copy.notes.length > 0 ? ` ${copy.notes.join(" ")}` : ""),
     };
   }
 

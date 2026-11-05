@@ -7,6 +7,7 @@ import {
 } from "@/lib/storage/answerSheets";
 import { analysePage, locateTextOnPage, type BBox, type QuestionMarker } from "@/lib/structuredCorrection/annotation/textractPage";
 import { buildOverlaySvg, type QuestionMark } from "@/lib/structuredCorrection/annotation/overlay";
+import type { PlacementOutcome } from "@/lib/structuredCorrection/annotation/placement";
 import type { ErrorExplanation } from "@/types/structuredCorrection";
 
 /**
@@ -45,7 +46,7 @@ export interface AnnotatableQuestion {
   sourcePages: number[];
 }
 
-export interface AnnotationOutcome {
+export interface AnnotationOutcome extends PlacementOutcome {
   pageNumber: number;
   annotated: boolean;
   /** Short and safe — never a raw provider error body or stack trace. */
@@ -54,21 +55,10 @@ export interface AnnotationOutcome {
 
 const JPEG_QUALITY = 93;
 
-/**
- * A question with no detected marker is placed just below the top of the page
- * the reading stage says it was written on. Approximate on purpose: without a
- * marker there is no way to know where on that page the answer starts, but a
- * tick somewhere on the right page is more useful to a student than none.
- */
-const FALLBACK_MARKER_TOP = 0.12;
-
-function fallbackMarkerFor(question: AnnotatableQuestion, pageNumber: number): QuestionMarker | null {
-  if (!question.sourcePages.includes(pageNumber)) return null;
-  return {
-    bbox: { left: 0.05, top: FALLBACK_MARKER_TOP, width: 0.05, height: 0.03 },
-    column: "full",
-  };
-}
+// A question whose own marker cannot be found on the page is NOT drawn at a guessed position. It used to be
+// placed "somewhere near the top of the page it was written on"; with several such questions every mark and
+// tick landed in the same place on top of each other, and a mark in the wrong place on a student's own paper
+// is worse than none. The teacher is told which questions could not be placed (see placement.ts).
 
 /**
  * Restricts a mistake search to one question's own answer region — from its
@@ -92,7 +82,7 @@ async function annotateOnePage(
   const width = metadata.width;
   const height = metadata.height;
   if (!width || !height) {
-    return { pageNumber: page.pageNumber, annotated: false, reason: "Page dimensions could not be read." };
+    return { pageNumber: page.pageNumber, annotated: false, reason: "Page dimensions could not be read.", placedQuestions: [], circled: [] };
   }
 
   const analysis = await analysePage(
@@ -100,23 +90,22 @@ async function annotateOnePage(
     questions.map((question) => ({ questionNumber: question.questionNumber, label: question.label ?? null })),
   );
 
-  // Resolve each question to a position on THIS page, preferring the marker
-  // Textract found and falling back to what the reading stage recorded.
+  // A question is drawn on THIS page only where Textract found its own marker.
   const placements = questions
     .map((question) => {
-      const marker =
-        analysis.markers.get(question.questionNumber) ?? fallbackMarkerFor(question, page.pageNumber);
+      const marker = analysis.markers.get(question.questionNumber);
       return marker ? { question, marker } : null;
     })
     .filter((entry): entry is { question: AnnotatableQuestion; marker: QuestionMarker } => entry !== null);
 
-  if (placements.length === 0) {
-    return { pageNumber: page.pageNumber, annotated: false, reason: "No question could be located on this page." };
+  if (placements.length === 0 && total === null) {
+    return { pageNumber: page.pageNumber, annotated: false, reason: "No question could be located on this page.", placedQuestions: [], circled: [] };
   }
 
   const markerTops = placements.map((entry) => entry.marker.bbox.top);
 
   const mistakes: BBox[] = [];
+  const circled: Array<{ questionNumber: number; errorId: string }> = [];
   for (const { question, marker } of placements) {
     if (question.explanations.length === 0) continue;
 
@@ -130,7 +119,10 @@ async function annotateOnePage(
       // A missing step has nothing written to circle.
       if (!explanation.wrongText) continue;
       const box = locateTextOnPage(wordsInRegion, explanation.wrongText);
-      if (box) mistakes.push(box);
+      if (box) {
+        mistakes.push(box);
+        circled.push({ questionNumber: question.questionNumber, errorId: explanation.errorId });
+      }
     }
   }
 
@@ -167,7 +159,13 @@ async function annotateOnePage(
     throw error;
   }
 
-  return { pageNumber: page.pageNumber, annotated: true, reason: null };
+  return {
+    pageNumber: page.pageNumber,
+    annotated: true,
+    reason: null,
+    placedQuestions: placements.map(({ question }) => question.questionNumber),
+    circled,
+  };
 }
 
 export async function annotateAnswerSheet(
@@ -189,6 +187,8 @@ export async function annotateAnswerSheet(
         pageNumber: page.pageNumber,
         annotated: false,
         reason: "This page could not be annotated.",
+        placedQuestions: [],
+        circled: [],
       });
     }
   }

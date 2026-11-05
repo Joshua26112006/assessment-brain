@@ -59,7 +59,7 @@ beforeEach(() => {
   vi.spyOn(console, "error").mockImplementation(() => {});
   findSubmission.mockResolvedValue({ id: "sub1", assessmentId: "a1" } as never);
   loadPages.mockResolvedValue([PAGE]);
-  draw.mockResolvedValue([{ pageNumber: 1, annotated: true, reason: null }]);
+  draw.mockResolvedValue([{ pageNumber: 1, annotated: true, reason: null, placedQuestions: [1], circled: [] }]);
 });
 
 describe("generateMarkedCopy", () => {
@@ -112,15 +112,37 @@ describe("generateMarkedCopy", () => {
     loadPages.mockResolvedValue([PAGE, { ...PAGE, pageId: "p2", pageNumber: 2 }]);
     loadRows.mockResolvedValue([row(1, {})]);
     draw.mockResolvedValue([
-      { pageNumber: 1, annotated: true, reason: null },
-      { pageNumber: 2, annotated: false, reason: "This page could not be annotated." },
+      { pageNumber: 1, annotated: true, reason: null, placedQuestions: [1], circled: [] },
+      { pageNumber: 2, annotated: false, reason: "This page could not be annotated.", placedQuestions: [], circled: [] },
     ]);
-    expect(await generateMarkedCopy("sub1")).toEqual({ ok: true, annotatedPages: 1, failedPages: 1, reason: null });
+    expect(await generateMarkedCopy("sub1")).toEqual({ ok: true, annotatedPages: 1, failedPages: 1, reason: null, notes: [] });
+  });
+
+  it("tells the teacher which questions and kept mistakes could not be placed, instead of leaving them out silently", async () => {
+    loadRows.mockResolvedValue([
+      row(1, { sourcePages: [1], findings: [finding("err_0", true, "120 J")] }),
+      row(2, { sourcePages: [1] }),
+    ]);
+    // Question 1's marker was found but its wrong value could not be circled; question 2's marker was not found at all.
+    draw.mockResolvedValue([{ pageNumber: 1, annotated: true, reason: null, placedQuestions: [1], circled: [] }]);
+
+    const outcome = await generateMarkedCopy("sub1");
+
+    expect(outcome.ok).toBe(true);
+    expect(outcome.notes).toHaveLength(2);
+    expect(outcome.notes[0]).toMatch(/question 2 could not be placed/);
+    expect(outcome.notes[1]).toMatch(/1 mistake you kept on question 1 could not be circled/);
+  });
+
+  it("says nothing when everything was placed and circled", async () => {
+    loadRows.mockResolvedValue([row(1, { sourcePages: [1], findings: [finding("err_0", true, "120 J")] })]);
+    draw.mockResolvedValue([{ pageNumber: 1, annotated: true, reason: null, placedQuestions: [1], circled: [{ questionNumber: 1, errorId: "err_0" }] }]);
+    expect((await generateMarkedCopy("sub1")).notes).toEqual([]);
   });
 
   it("does nothing, successfully, when there are no photographed pages (a typed assessment)", async () => {
     loadPages.mockResolvedValue([]);
-    expect(await generateMarkedCopy("sub1")).toEqual({ ok: true, annotatedPages: 0, failedPages: 0, reason: null });
+    expect(await generateMarkedCopy("sub1")).toEqual({ ok: true, annotatedPages: 0, failedPages: 0, reason: null, notes: [] });
     expect(draw).not.toHaveBeenCalled();
   });
 

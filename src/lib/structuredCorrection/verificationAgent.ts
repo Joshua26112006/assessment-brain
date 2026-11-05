@@ -203,12 +203,9 @@ export async function verifyComparisonResult(
 
   if (comparison.status !== "compared" || comparison.errors.length === 0) return pass();
 
-  // The student and the rubric disagree about what kind of problem this even
-  // is, so the comparison was very likely made against the wrong expectation.
-  // Every claim it produced is suspect, and none of it is safe to show.
-  if (comparison.readingProblemType && comparison.expectationProblemType) {
-    return { status: "FAIL", perError: [], failedErrorIds: [], blockedErrorIds: [] };
-  }
+  // (A disagreement between the reader's and the rubric's guess at the "problem type" used to fail the
+  // whole verification here. That label is a classification guess from a list built for one subject, and
+  // it failed whole questions on nothing but that guess, so it no longer decides anything.)
 
   const perError: ErrorVerification[] = [];
   const byErrorId = new Map<string, ErrorVerification>();

@@ -4,6 +4,7 @@ import { loadSubmissionReview } from "@/lib/assessment/markRelease";
 import { roundMarks } from "@/lib/assessment/markReview";
 import { paperTotals } from "@/lib/questions/paperScore";
 import { annotateAnswerSheet, type AnnotatableQuestion } from "@/lib/structuredCorrection/annotation";
+import { describePlacement, summarizePlacement } from "@/lib/structuredCorrection/annotation/placement";
 import type { ErrorExplanation } from "@/types/structuredCorrection";
 
 /**
@@ -26,6 +27,8 @@ export interface MarkedCopyOutcome {
   annotatedPages: number;
   failedPages: number;
   reason: string | null;
+  /** Plain sentences for the teacher about what could not be placed on the pages; empty when everything was. */
+  notes: string[];
 }
 
 export async function generateMarkedCopy(submissionId: string): Promise<MarkedCopyOutcome> {
@@ -34,11 +37,11 @@ export async function generateMarkedCopy(submissionId: string): Promise<MarkedCo
       where: { id: submissionId },
       select: { id: true, assessmentId: true, assessment: { select: { questionTree: true } } },
     });
-    if (!submission) return { ok: false, annotatedPages: 0, failedPages: 0, reason: "Submission not found." };
+    if (!submission) return { ok: false, annotatedPages: 0, failedPages: 0, reason: "Submission not found.", notes: [] };
 
     const pages = await loadOrderedAnswerSheetPages(submission.id);
     // A typed assessment has no photographed pages to draw on.
-    if (pages.length === 0) return { ok: true, annotatedPages: 0, failedPages: 0, reason: null };
+    if (pages.length === 0) return { ok: true, annotatedPages: 0, failedPages: 0, reason: null, notes: [] };
 
     const rows = await loadSubmissionReview(prisma, submission.id, submission.assessmentId);
 
@@ -93,9 +96,23 @@ export async function generateMarkedCopy(submissionId: string): Promise<MarkedCo
     );
 
     const annotatedPages = outcomes.filter((outcome) => outcome.annotated).length;
-    return { ok: true, annotatedPages, failedPages: outcomes.length - annotatedPages, reason: null };
+
+    // What could not be placed on the pages (a question whose number was not found, a kept mistake that could not
+    // be circled) is reported, never silently left out and never drawn in a guessed place.
+    const notes = describePlacement(
+      summarizePlacement(
+        questions.map((question) => ({
+          questionNumber: question.questionNumber,
+          label: question.label,
+          sourcePages: question.sourcePages,
+          explanations: question.explanations.map((explanation) => ({ errorId: explanation.errorId, wrongText: explanation.wrongText })),
+        })),
+        outcomes,
+      ),
+    );
+    return { ok: true, annotatedPages, failedPages: outcomes.length - annotatedPages, reason: null, notes };
   } catch (error) {
     console.error("Could not generate the marked copy", error);
-    return { ok: false, annotatedPages: 0, failedPages: 0, reason: "The marked copy could not be drawn." };
+    return { ok: false, annotatedPages: 0, failedPages: 0, reason: "The marked copy could not be drawn.", notes: [] };
   }
 }

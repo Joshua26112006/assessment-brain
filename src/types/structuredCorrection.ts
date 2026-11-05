@@ -65,6 +65,11 @@ export interface StructuredApproachExpectation {
   formulaName: string;
   formulaExpression: string;
   variables: Record<string, ExtractedValue>;
+  /**
+   * Other names a student may use for a quantity ("u" = "v0" = "initial velocity"), keyed by the
+   * quantity's name above. Used when looking up the student's value for it.
+   */
+  aliases?: Record<string, string[]>;
 }
 
 /**

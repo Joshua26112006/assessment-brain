@@ -189,15 +189,14 @@ function enclosingBBox(words: Block[]): BBox | null {
  * `words` must already be narrowed to one question's own answer region, so a
  * mistake can never be matched against text belonging to a different question.
  *
- * Searched from the END of the region backwards, preferring the LAST match: a
- * student's copied-out restatement of the question sits at the top of their
- * answer and often repeats the same numbers the question gave, so searching
- * forwards would reliably land on the restatement instead of the actual
- * working. Not foolproof — a value used correctly early and wrongly later can
- * still mismatch — but far better than the alternative.
+ * An exact match is circled only when it is the ONLY occurrence in the region
+ * (a student's copied-out restatement of the question, or a value used
+ * correctly earlier, would otherwise get the ring). The looser fallbacks below
+ * are searched from the END of the region backwards.
  *
- * Returns null rather than a best guess when nothing matches confidently; the
- * caller then simply draws no circle.
+ * Returns null rather than a best guess when nothing matches confidently, or
+ * when the quoted text occurs more than once; the caller then simply draws no
+ * circle and says so.
  */
 export function locateTextOnPage(words: Block[], wrongText: string): BBox | null {
   const target = wrongText.trim().split(/\s+/).map(normalizeToken).filter(Boolean);
@@ -205,7 +204,11 @@ export function locateTextOnPage(words: Block[], wrongText: string): BBox | null
 
   const normalized = words.map((word) => normalizeToken(word.Text ?? ""));
 
-  // 1. The common case — an exact run of words.
+  // 1. The common case — an exact run of words. If the same run appears MORE THAN ONCE in this answer's
+  //    region, there is no way to know which occurrence the finding is about (a finding names a value, not a
+  //    line), and circling the wrong one tells a student a correct line is wrong. So nothing is circled and
+  //    the teacher's own note stands (plan, Phase 6 step 3; decision D15).
+  const exactMatches: number[] = [];
   for (let i = normalized.length - target.length; i >= 0; i--) {
     let matches = true;
     for (let j = 0; j < target.length; j++) {
@@ -214,8 +217,10 @@ export function locateTextOnPage(words: Block[], wrongText: string): BBox | null
         break;
       }
     }
-    if (matches) return enclosingBBox(words.slice(i, i + target.length));
+    if (matches) exactMatches.push(i);
   }
+  if (exactMatches.length > 1) return null;
+  if (exactMatches.length === 1) return enclosingBBox(words.slice(exactMatches[0], exactMatches[0] + target.length));
 
   // 2. Textract often splits one written token across words ("15/12" as
   //    "15", "/", "12"), so try joining short runs with no separator.

@@ -42,7 +42,7 @@ export function buildStructuredExpectationInstructions(): string {
   return [
     "",
     "ADDITIONALLY, include one more top-level field, \"structuredExpectation\", so a program can later compare a student's written working against this rubric numerically:",
-    '"structuredExpectation": {"solvable": boolean, "unsolvableReason": string, "problemType": string, "correctAnswer": string, "approaches": [{"label": string, "formulaName": string, "formulaExpression": string, "variables": {"<name>": "<value>"}}]}',
+    '"structuredExpectation": {"solvable": boolean, "unsolvableReason": string, "problemType": string, "correctAnswer": string, "approaches": [{"label": string, "formulaName": string, "formulaExpression": string, "variables": {"<name>": "<value>"}, "aliases": {"<name>": ["<other name>"]}}]}',
     "",
     "7. solvable: true ONLY if this question reduces to one definite, checkable final value (e.g. \"find the mode\", \"calculate the probability\"). Set it to false for a proof, a construction, an explanation, or any question with more than one legitimately different final answer — that is a normal and expected outcome, not a failure.",
     "8. unsolvableReason: required when solvable is false, and must be exactly one of: \"conceptual_question\", \"proof_based\", \"multiple_valid_answers\", \"diagram_required\", \"insufficient_information\", \"other\". Omit it entirely when solvable is true.",
@@ -50,6 +50,7 @@ export function buildStructuredExpectationInstructions(): string {
     "10. correctAnswer: the single correct final value, written plainly (e.g. \"34.17\", \"5/12\", \"20\"). If the quantity has a unit, write the unit after the number using standard symbols (e.g. \"4 m/s^2\", \"120 J\", \"2 g\"); a unit is part of the answer. Use an empty string when solvable is false. Add no other words or commentary.",
     "11. approaches: ONE entry for each entry in solutionApproaches above, in the SAME ORDER, with the SAME label. For each, give the specific named quantities that approach actually uses, with the correct value for each, taken from the data in the question (e.g. {\"L\": \"30\", \"f1\": \"15\", \"f0\": \"9\", \"f2\": \"8\", \"h\": \"10\"}). Write each value as plain text exactly as it should be — never as a worded sentence. Use {} only if the approach genuinely has no named quantities. Use [] for approaches when solvable is false.",
     "12. Never invent a variable the question does not support, and never round a value differently from how the question states it.",
+    "13. Optionally, per approach, add \"aliases\": {\"<name>\": [\"other name\", ...]} for any quantity a student is likely to write under a different name (e.g. {\"u\": [\"v0\", \"initial velocity\"]}). Only real synonyms; omit it when there are none.",
   ].join("\n");
 }
 
@@ -95,11 +96,25 @@ function parseApproaches(raw: unknown): StructuredApproachExpectation[] {
         }
       }
 
+      // Other names a student may use for a quantity, kept only for quantities this approach actually has.
+      const aliases: Record<string, string[]> = {};
+      if (item.aliases && typeof item.aliases === "object" && !Array.isArray(item.aliases)) {
+        for (const [name, list] of Object.entries(item.aliases as Record<string, unknown>)) {
+          if (!(name in variables) || !Array.isArray(list)) continue;
+          const names = list
+            .filter((alias): alias is string => typeof alias === "string" && alias.trim().length > 0)
+            .map((alias) => alias.trim().slice(0, 60))
+            .slice(0, 8);
+          if (names.length > 0) aliases[name] = names;
+        }
+      }
+
       return {
         label: toTrimmed(item.label, MAX_LABEL_LENGTH),
         formulaName: toTrimmed(item.formulaName, MAX_LABEL_LENGTH),
         formulaExpression: toTrimmed(item.formulaExpression, MAX_FORMULA_LENGTH),
         variables,
+        ...(Object.keys(aliases).length > 0 ? { aliases } : {}),
       };
     })
     // An approach with no named variables contributes nothing the comparison
