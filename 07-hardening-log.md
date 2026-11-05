@@ -41,9 +41,9 @@ These are the items that are genuinely yours. Everything else in this log is eit
 
 After each: 16 users, 9 submissions, 48 responses, 0 mark events, 0 released — unchanged. Phases 4, 6 and 7 changed no schema.
 
-## Problems found while building: 51 (problems 5, 6, 8, 9, 42, 47, 48, 49 and 51 were fixed in later batches)
+## Problems found while building: 56 (problems 5, 6, 8, 9, 42, 47, 48, 49, 51, 52 and 53 were fixed in later batches)
 
-**35 fixed · 15 accepted, decided or observations · 1 open (need you, or a later fix).** Problems 39 to 50 came from the final browser walkthrough, described in its own section below the deviations.
+**37 fixed · 16 accepted, decided or observations · 3 open (need you, or a later fix).** Problems 39 to 50 came from the final browser walkthrough, described in its own section below the deviations.
 
 ### Found when the Phase 1 screens were clicked through in a browser
 
@@ -186,6 +186,29 @@ Done after the owner's answers, all with unit tests, all committed on the same b
 **Checked in the browser and fine:** approving a structured paper (numbers locked, structure explained, uncertain question marked "Please double-check"); the two number-format ticks and the rules showing only where they apply; the figure badge and note; the alternative-method opinion box and the flag; changing a mark with a comment (the student then sees only your comment, while an accepted answer still shows the AI feedback); "With your teacher" and nothing else before release; the "scheme changed" item in the review queue after editing a confirmed answer's scheme.
 
 **Still open from the owner's list:** diagram handling (deferred to a later talk), the real scripts (#34), and the branch review and merge. The key limit (#45), the temperature measurement (#38) and the json_schema test (#37) were closed on Nov 6.
+## Diagrams (started Nov 6)
+
+The owner's direction: all diagram types and all subjects, in the question paper and in handwritten answers; the AI marks a diagram only when it is very clear and otherwise flags the teacher; question papers are digital PDFs; the correct diagram may come from the paper, from a model diagram the teacher uploads, or be absent, and every mode must work; the teacher still accepts every mark (D1).
+
+Plan, in order. Steps 1 and 2 are built; 3 to 5 are not.
+
+| Step | What | State |
+| --- | --- | --- |
+| 1 | Find the figures, graphs and tables of a digital question paper (render each PDF page, read the PDF's exact text positions, find drawings as the marks that are not text, crop them, tie each to the question it follows) and store them | **Built.** Migration `20261106100000` applied to live (one new table, two enums). Tested on a real PDF printed from Chrome and in the browser. |
+| 2 | Show the figures on each question card, let the teacher place a figure that follows no question, add or remove one, upload a model diagram; give the figures to the question check and to the scheme drafter | **Built.** Verified live: with a table attached the checker no longer says the table is missing, and the drafter built the scheme from the table's real numbers. A model diagram makes the drafter write the checklist as visible yes/no features. |
+| 3 | Find and crop a diagram on a student's sheet by two independent methods (non-text ink in the question's region, and the reader model's box); use the crop only when they agree | Not started. The ink finder from step 1 is the first method. |
+| 4 | Judge a diagram: a checklist run three times with images, median, marks added in code; unflagged only when every condition for "very clear" holds, otherwise flagged | Not started. The card still says "you mark this one" for diagram questions. |
+| 5 | Review screen: the crop beside the reference, the checklist with evidence, and a way to redraw the crop box | Not started. |
+
+| # | Problem found while building | Status |
+| --- | --- | --- |
+| 52 | The rows of a table ("1 4", "2 9", "3 13") look like question numbers, so they were taken as the markers of questions 1 to 3 and the table was attached to nothing. A draft that knows a question only as "1" also did not match a paper that prints "1. (a)". | **Fixed** (found in the browser). A line inside a drawing, or made only of numbers, cannot start a question; a plain number now starts at its printed first part. Tests use the real PDF. |
+| 53 | If a database write failed after a figure's file was written, that one file was left on disk. | **Fixed** (found by a test). The file is taken back, and the earlier figures are kept. |
+| 54 | Figures printed as ONE picture shared by several parts ("1(a)" and "1(b)" both use it) belong to the part they follow. | **Handled:** a part is given the figures of every part that shares its number. |
+| 55 | Scanned or photographed question papers have no text layer, so their figures are not found automatically. | **Open, by design for now.** The teacher can upload the figure for a question. The same ink method with a text detector could cover scans later. |
+| 56 | Rotated PDF pages are not handled by the text positions. | **Open (rare).** |
+
+**Checked in the browser:** approving a digital paper finds its figures after approval; each lands under the right question (a figure under Q1, the table under Q2, the cell diagram under Q4); a question that asks the student to draw is told to take a model diagram; upload of a model diagram; placing a figure that follows no question; "Find the paper's figures again".
 ## Not verified, and why
 
 - (The paper-review screen and the "scheme changed" flag, listed here before, were opened in a browser in the later batches.)
