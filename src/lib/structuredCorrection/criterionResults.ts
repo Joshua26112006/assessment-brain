@@ -14,6 +14,15 @@ const MAX_FEEDBACK = 800;
 export const SPREAD_MARKS = 1;
 export const SPREAD_SHARE = 0.25;
 
+/**
+ * Decision D2 says to flag runs that differ by more than 1 mark or 25%. Measured on real answers, a
+ * half-mark difference between runs of the same answer is still the sign of a borderline call, and the
+ * medians of repeated markings then differ by half a mark. With this on, ANY difference between the
+ * runs sends the answer to the teacher (a deliberately stricter rule than D2, which is the owner's to
+ * confirm — see 07-hardening-log.md). Set false to flag only what D2 says.
+ */
+export const FLAG_ANY_DISAGREEMENT = true;
+
 function foldForSearch(text: string): string {
   return text
     .toLowerCase()
@@ -115,6 +124,10 @@ export function markingReasons(input: MarkingReasonInput): string[] {
   if (runsDisagree(input.totals, input.maximumMarks)) {
     reasons.push(
       `The marking checks disagreed: the same answer scored from ${Math.min(...input.totals)} to ${Math.max(...input.totals)} out of ${input.maximumMarks}.`,
+    );
+  } else if (FLAG_ANY_DISAGREEMENT && spreadOf(input.totals) > 0) {
+    reasons.push(
+      `The marking checks did not all agree: the same answer scored ${Math.min(...input.totals)} to ${Math.max(...input.totals)} out of ${input.maximumMarks}, so it is a borderline call.`,
     );
   }
   if (input.totals.length < input.runsAttempted) {

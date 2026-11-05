@@ -177,8 +177,9 @@ describe("scoreByCriteria", () => {
     expect(score.marking?.runTotals.slice().sort()).toEqual([3, 4, 4]);
     expect(score.awardedMarks).toBe(4);
     expect(score.marking?.spread).toBe(1);
-    // A spread of exactly one mark on a 4-mark question is within the rule: steady enough.
-    expect(score.marking?.unsure).toBe(false);
+    // Within D2's threshold (not above 1 mark or 25%), but the runs were not unanimous, so it is still a borderline call.
+    expect(score.marking?.unsure).toBe(true);
+    expect(score.marking?.reasons[0]).toMatch(/did not all agree/);
   });
 
   it("flags runs that disagree by more than a mark for the teacher, and still gives the median", async () => {

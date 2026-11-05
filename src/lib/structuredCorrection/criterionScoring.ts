@@ -105,7 +105,9 @@ export function decideWithoutModel(input: CriterionScoringInput): Decided {
     askModel,
     finalAnswerCorrect,
     // A final-answer criterion exists but code could not judge it: the teacher is told.
-    undecidedFinalAnswer: hasFinalCriterion && finalAnswerCorrect === null && expectation?.solvable === true,
+    // (A key that is simply not a number is not "could not be checked": nothing numeric was ever expected.)
+    undecidedFinalAnswer:
+      hasFinalCriterion && finalAnswerCorrect === null && expectation?.solvable === true && expectation.correctAnswer?.parsed != null,
     facts,
   };
 }

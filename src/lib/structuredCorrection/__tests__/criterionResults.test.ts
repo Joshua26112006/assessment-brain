@@ -127,6 +127,14 @@ describe("markingReasons", () => {
     expect(markingReasons(base)).toEqual([]);
   });
 
+  it("a half-mark difference between runs is still flagged as a borderline call (stricter than D2, on purpose)", () => {
+    const reasons = markingReasons({ ...base, totals: [3, 3.5, 3] });
+    expect(reasons).toHaveLength(1);
+    expect(reasons[0]).toMatch(/did not all agree.*borderline/);
+    // ...and a difference above D2's threshold keeps the plainer wording
+    expect(markingReasons({ ...base, totals: [4, 2, 3] })[0]).toMatch(/^The marking checks disagreed/);
+  });
+
   it("explains each cause in plain words", () => {
     expect(markingReasons({ ...base, totals: [4, 2, 3] })[0]).toMatch(/disagreed.*2 to 4 out of 4/);
     expect(markingReasons({ ...base, totals: [3, 3], runsAttempted: 3 }).join(" ")).toMatch(/Only 2 of 3/);
