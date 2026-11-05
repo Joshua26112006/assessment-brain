@@ -7,6 +7,11 @@ import { prisma } from "@/lib/prisma";
 import { requireTeacherSession } from "@/lib/require-teacher";
 import { generateRubricForQuestion, generateAllRubricsForAssessment } from "@/lib/rubricGeneration";
 import { getAssessmentReadiness, describeAssessmentReadiness } from "@/lib/assessment/readiness";
+import { approveAllSchemes, approveScheme } from "@/lib/assessment/schemeApproval";
+import { saveSchemeVersion } from "@/lib/assessment/schemeVersioning";
+import { reapplyAfterSchemeChange } from "@/lib/assessment/schemeReapplyRunner";
+import { FOLLOW_THROUGH_RULES, NO_WORKING_RULES, schemeOf } from "@/lib/scheme/criteria";
+import { mergeApproachEdits, mergeCheckpointEdits, type StoredApproach } from "@/lib/scheme/merge";
 
 export type ActionState = { error?: string; success?: boolean };
 
@@ -351,48 +356,107 @@ export async function saveRubricVersion(
     return { error: "Add at least one marking checkpoint." };
   }
 
-  await prisma.$transaction(async (tx) => {
-    let rubric = await tx.rubric.findUnique({
-      where: { questionId },
-      include: { activeVersion: true },
-    });
-
-    if (!rubric) {
-      rubric = await tx.rubric.create({
-        data: { questionId },
-        include: { activeVersion: true },
-      });
-    }
-
-    const highestVersion = await tx.rubricVersion.aggregate({
-      where: { rubricId: rubric.id },
-      _max: { versionNumber: true },
-    });
-    const nextVersionNumber = (highestVersion._max.versionNumber ?? 0) + 1;
-
-    const newVersion = await tx.rubricVersion.create({
-      data: {
-        rubricId: rubric.id,
-        versionNumber: nextVersionNumber,
-        status: "ACTIVE",
-        solutionApproaches: approaches,
-        markingCheckpoints: checkpoints,
-      },
-    });
-
-    if (rubric.activeVersionId) {
-      await tx.rubricVersion.update({
-        where: { id: rubric.activeVersionId },
-        data: { status: "SUPERSEDED" },
-      });
-    }
-
-    await tx.rubric.update({
-      where: { id: rubric.id },
-      data: { activeVersionId: newVersion.id, generationStatus: "READY", generationError: null },
-    });
+  // The editor only knows descriptions and marks. Fold its changes into what is already stored, so the
+  // expected answer, partial-credit guidance, structured expectation and each approach's steps survive
+  // (the old save replaced the whole rubric and silently dropped them).
+  const current = await prisma.rubric.findUnique({
+    where: { questionId },
+    select: { activeVersion: { select: { criteria: true, markingCheckpoints: true, solutionApproaches: true } } },
   });
+  const existingScheme = schemeOf(current?.activeVersion ?? {}, Number(question.maximumMarks));
+  const merged = mergeCheckpointEdits(existingScheme.criteria, checkpoints, Number(question.maximumMarks));
+  if (!merged.ok) return { error: merged.message };
 
+  const saved = await saveSchemeVersion({
+    teacherId: session.user.id,
+    questionId,
+    changes: {
+      solutionApproaches: mergeApproachEdits(parseStoredApproaches(current?.activeVersion?.solutionApproaches), approaches),
+      markingCheckpoints: merged.criteria.map((c) => ({ description: c.description, marks: c.marks })),
+      criteria: merged.criteria,
+    },
+  });
+  if (!saved.ok) return { error: saved.message };
+
+  // A scheme the teacher changed applies to answers already drafted (decision D13).
+  after(() => reapplyAfterSchemeChange(questionId, session.user.id));
+
+  revalidatePath(`/teacher/assessments/${question.assessmentId}`);
+  return { success: true };
+}
+
+function parseStoredApproaches(raw: unknown): StoredApproach[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null)
+    .map((item) => ({
+      label: typeof item.label === "string" ? item.label : "",
+      description: typeof item.description === "string" ? item.description : "",
+      steps: Array.isArray(item.steps) ? item.steps.filter((s): s is string => typeof s === "string") : [],
+      isPrimary: item.isPrimary === true,
+    }));
+}
+
+/**
+ * Approves one question's marking scheme (decision D8): the AI drafted it, a teacher checked it. Answers
+ * parked because the scheme was not approved are picked up and marked straight away.
+ */
+export async function approveSchemeAction(questionId: string, _prev: ActionState): Promise<ActionState> {
+  const session = await requireTeacherSession();
+  const result = await approveScheme({ teacherId: session.user.id, questionId });
+  if (!result.ok) return { error: result.message };
+
+  if (!result.alreadyApproved) after(() => reapplyAfterSchemeChange(questionId, session.user.id));
+  const question = await getOwnedQuestion(questionId, session.user.id);
+  if (question) {
+    revalidatePath(`/teacher/assessments/${question.assessmentId}`);
+    revalidatePath(`/teacher/assessments/${question.assessmentId}/rubrics`);
+  }
+  return { success: true };
+}
+
+/** Approves every question's scheme at once; one that cannot be approved is reported, never skipped silently. */
+export async function approveAllSchemesAction(assessmentId: string, _prev: ActionState): Promise<ActionState> {
+  const session = await requireTeacherSession();
+  const result = await approveAllSchemes({ teacherId: session.user.id, assessmentId });
+  if (!result) return { error: "Assessment not found." };
+
+  for (const questionId of result.newlyApprovedQuestionIds) {
+    after(() => reapplyAfterSchemeChange(questionId, session.user.id));
+  }
+  revalidatePath(`/teacher/assessments/${assessmentId}`);
+  revalidatePath(`/teacher/assessments/${assessmentId}/rubrics`);
+
+  if (result.skipped.length > 0) {
+    const detail = result.skipped.map((s) => `Question ${s.questionNumber}: ${s.message}`).join(" ");
+    return { error: `Approved ${result.approved}. Not approved — ${detail}` };
+  }
+  return { success: true };
+}
+
+/** Sets the follow-through and no-working rules for one question. Saved as a new version, so it applies to answers already drafted. */
+export async function saveSchemeRulesAction(
+  questionId: string,
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const session = await requireTeacherSession();
+  const followThrough = String(formData.get("followThrough") ?? "");
+  const noWorkingRule = String(formData.get("noWorkingRule") ?? "");
+  if (!(FOLLOW_THROUGH_RULES as readonly string[]).includes(followThrough)) return { error: "Choose a follow-through rule." };
+  if (!(NO_WORKING_RULES as readonly string[]).includes(noWorkingRule)) return { error: "Choose what a correct answer with no working earns." };
+
+  const question = await getOwnedQuestion(questionId, session.user.id);
+  if (!question) return { error: "Question not found." };
+
+  const saved = await saveSchemeVersion({
+    teacherId: session.user.id,
+    questionId,
+    changes: { followThrough: followThrough as never, noWorkingRule: noWorkingRule as never },
+  });
+  if (!saved.ok) return { error: saved.message };
+
+  after(() => reapplyAfterSchemeChange(questionId, session.user.id));
   revalidatePath(`/teacher/assessments/${question.assessmentId}`);
   return { success: true };
 }

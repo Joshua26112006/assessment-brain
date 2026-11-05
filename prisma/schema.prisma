@@ -45,6 +45,7 @@ model User {
   marksConfirmed     Submission[] @relation("SubmissionConfirmer")
   resultsReleased    Submission[] @relation("SubmissionReleaser")
   markEvents         MarkEvent[]  @relation("MarkEventActor")
+  schemesApproved    RubricVersion[] @relation("RubricVersionApprover")
 
   // As STUDENT
   classMemberships ClassMembership[]
@@ -262,6 +263,19 @@ model Question {
 // Rubric + RubricVersion
 // ---------------------------------------------------------------------------
 
+/// Decision D10 of 06-correction-hardening-plan.md.
+enum FollowThroughRule {
+  ALLOWED
+  NOT_ALLOWED
+  METHOD_ONLY
+}
+
+/// Decision D6 of 06-correction-hardening-plan.md.
+enum NoWorkingRule {
+  FINAL_ANSWER_ONLY
+  FULL_MARKS
+}
+
 enum RubricVersionStatus {
   DRAFT
   ACTIVE
@@ -412,6 +426,30 @@ model RubricVersion {
   status             RubricVersionStatus @default(DRAFT)
   solutionApproaches Json?
   markingCheckpoints Json?
+
+  /// Hardening Phase 2 — the scheme as a list of criteria (src/lib/scheme/criteria.ts):
+  /// each a yes/no check with a kind and marks in steps of 0.5 that add up to the
+  /// question's maximum. Null on versions written before criteria existed; those
+  /// read as STEP criteria derived from `markingCheckpoints`.
+  criteria Json?
+
+  /// Whether a later step earned using an earlier wrong value still earns its
+  /// mark (decision D10). Null means "the school-wide default".
+  followThrough FollowThroughRule?
+
+  /// What a correct final answer with no working earns (decision D6). Null means
+  /// the school-wide default.
+  noWorkingRule NoWorkingRule?
+
+  /// Other valid methods or answers the scheme accepts, as a JSON string array.
+  acceptedAlternatives Json?
+
+  /// A teacher approves a scheme before anything is marked against it (decision
+  /// D8). Marking refuses a version with no approvedAt. A version a teacher saves
+  /// by hand is approved at the moment of saving.
+  approvedAt   DateTime?
+  approvedById String?
+  approvedBy   User?     @relation("RubricVersionApprover", fields: [approvedById], references: [id], onDelete: SetNull)
 
   /// Phase 4.1 — the correct final answer/conclusion (or, for a question
   /// with no single fixed answer, what a complete correct answer must
@@ -773,6 +811,13 @@ enum ReviewReason {
   VERIFICATION_FAILURE
   AMBIGUOUS_ANNOTATION
   UNDETERMINED_GRADING
+  /// The question's marking scheme has no teacher approval (decision D8), so nothing
+  /// was marked against it. The teacher approves the scheme or marks the answer.
+  SCHEME_NOT_APPROVED
+  /// The question's marking scheme changed after a teacher had already accepted or
+  /// confirmed this answer's mark (decision D13). The mark was NOT changed; the
+  /// teacher decides whether it still stands.
+  SCHEME_CHANGED
   /// The Phase 3.4B AI answer-sheet validation gate concluded a handwritten
   /// submission's uploaded pages are not usable as a genuine answer sheet
   /// (e.g. an unrelated document, all pages blank). Submission-scoped only

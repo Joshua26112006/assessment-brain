@@ -54,6 +54,11 @@ export type RubricReadinessBucket =
   | "PENDING"
   | "FAILED"
   | "REVIEW_REQUIRED"
+  /**
+   * A scheme exists but no teacher has approved it (decision D8): nothing may be marked
+   * against it, and the assessment cannot be published, until one does.
+   */
+  | "AWAITING_APPROVAL"
   | "MISSING";
 
 export interface QuestionReadiness {
@@ -75,6 +80,7 @@ export interface AssessmentReadiness {
   pendingCount: number;
   failedCount: number;
   reviewRequiredCount: number;
+  awaitingApprovalCount: number;
   missingCount: number;
   /** True only when there's at least one question and every single one is READY. */
   isReady: boolean;
@@ -92,12 +98,16 @@ export interface QuestionForReadiness {
     generationError: string | null;
     validationIssueType?: string | null;
     validationIssueSummary?: string | null;
+    /** The version marking would use; READY needs it to carry a teacher's approval. */
+    activeVersion?: { approvedAt: Date | string | null } | null;
   } | null;
 }
 
 function bucketFor(rubric: QuestionForReadiness["rubric"]): RubricReadinessBucket {
   if (!rubric) return "MISSING";
-  if (rubric.generationStatus === "READY" && rubric.activeVersionId) return "READY";
+  if (rubric.generationStatus === "READY" && rubric.activeVersionId) {
+    return rubric.activeVersion?.approvedAt ? "READY" : "AWAITING_APPROVAL";
+  }
   if (rubric.generationStatus === "GENERATING") return "GENERATING";
   if (rubric.generationStatus === "FAILED") return "FAILED";
   if (rubric.generationStatus === "REVIEW_REQUIRED") return "REVIEW_REQUIRED";
@@ -132,6 +142,7 @@ export function computeAssessmentReadiness(questionsInput: QuestionForReadiness[
   const pendingCount = questions.filter((q) => q.bucket === "PENDING").length;
   const failedCount = questions.filter((q) => q.bucket === "FAILED").length;
   const reviewRequiredCount = questions.filter((q) => q.bucket === "REVIEW_REQUIRED").length;
+  const awaitingApprovalCount = questions.filter((q) => q.bucket === "AWAITING_APPROVAL").length;
   const missingCount = questions.filter((q) => q.bucket === "MISSING").length;
 
   return {
@@ -142,6 +153,7 @@ export function computeAssessmentReadiness(questionsInput: QuestionForReadiness[
     pendingCount,
     failedCount,
     reviewRequiredCount,
+    awaitingApprovalCount,
     missingCount,
     // A REVIEW_REQUIRED question is never READY, so it already can't
     // satisfy readyCount === totalQuestions — this formula needs no
@@ -174,6 +186,7 @@ export async function getAssessmentReadiness(assessmentId: string): Promise<Asse
           generationError: true,
           validationIssueType: true,
           validationIssueSummary: true,
+          activeVersion: { select: { approvedAt: true } },
         },
       },
     },
@@ -208,7 +221,7 @@ export function describeAssessmentReadiness(readiness: AssessmentReadiness): Rea
   if (readiness.isReady) {
     return {
       headline: "Ready to publish",
-      message: "Every question has a ready evaluation rubric. Publishing makes this assessment visible to the class.",
+      message: "Every question has an approved marking scheme. Publishing makes this assessment visible to the class.",
       tone: "success",
     };
   }
@@ -242,6 +255,19 @@ export function describeAssessmentReadiness(readiness: AssessmentReadiness): Rea
       headline: "Analyzing…",
       message: "Assessment Brain is generating evaluation rubrics. This usually finishes within a minute — the page will update on its own.",
       tone: "info",
+    };
+  }
+
+  if (readiness.awaitingApprovalCount > 0) {
+    const numbers = readiness.questions
+      .filter((q) => q.bucket === "AWAITING_APPROVAL")
+      .map((q) => q.questionNumber)
+      .join(", ");
+    const plural = readiness.awaitingApprovalCount === 1;
+    return {
+      headline: "Approve the marking scheme",
+      message: `The marking scheme for question${plural ? "" : "s"} ${numbers} ${plural ? "has" : "have"} not been approved yet. Nothing is marked until you check and approve ${plural ? "it" : "them"}.`,
+      tone: "warning",
     };
   }
 

@@ -13,6 +13,7 @@ import QuestionPaperSection from "./QuestionPaperSection";
 import RubricGenerationWatcher from "./RubricGenerationWatcher";
 import AssessmentReadinessPanel from "./AssessmentReadinessPanel";
 import { parseRubricApproaches, parseRubricCheckpoints } from "./RubricViewer";
+import { schemeOf } from "@/lib/scheme/criteria";
 
 export default async function AssessmentDetailPage({
   params,
@@ -47,6 +48,16 @@ export default async function AssessmentDetailPage({
                 partialCreditGuidance: q.rubric.activeVersion.partialCreditGuidance,
                 solutionApproaches: parseRubricApproaches(q.rubric.activeVersion.solutionApproaches),
                 markingCheckpoints: parseRubricCheckpoints(q.rubric.activeVersion.markingCheckpoints),
+                approvedAt: q.rubric.activeVersion.approvedAt ? q.rubric.activeVersion.approvedAt.toISOString() : null,
+                // Older rubrics have no criteria of their own; they read as steps derived from their checkpoints.
+                ...(() => {
+                  const scheme = schemeOf(q.rubric.activeVersion, Number(q.maximumMarks));
+                  return {
+                    criteria: scheme.criteria,
+                    followThrough: scheme.followThrough,
+                    noWorkingRule: scheme.noWorkingRule,
+                  };
+                })(),
               }
             : null,
           versionCount: q.rubric.versions.length,
@@ -72,6 +83,7 @@ export default async function AssessmentDetailPage({
             generationError: q.rubric.generationError,
             validationIssueType: q.rubric.validationIssueType,
             validationIssueSummary: q.rubric.validationIssueSummary,
+            activeVersion: q.rubric.activeVersion ? { approvedAt: q.rubric.activeVersion.approvedAt } : null,
           }
         : null,
     })),

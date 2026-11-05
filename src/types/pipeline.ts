@@ -504,7 +504,9 @@ export type PipelineRunStatus =
   | "FAILED"
   | "SKIPPED_ALREADY_GRADED"
   | "BLOCKED_NOT_SUBMITTED"
-  | "BLOCKED_NO_ACTIVE_RUBRIC";
+  | "BLOCKED_NO_ACTIVE_RUBRIC"
+  /** The question's scheme has no teacher approval (decision D8); the answer was parked for the teacher. */
+  | "BLOCKED_SCHEME_NOT_APPROVED";
 
 export interface PipelineRunResult {
   questionResponseId: QuestionResponseId;

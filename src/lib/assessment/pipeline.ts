@@ -15,6 +15,7 @@ import { gradeResponse } from "@/lib/grading";
 import { detectNovelApproach } from "@/lib/novelApproach";
 import { detectNovelApproachWithAi } from "@/lib/novelApproach/ai";
 import { createReviewItemIfNeeded } from "@/lib/assessment/pipelineReviewItems";
+import { holdForUnapprovedScheme, mayMarkAgainst } from "@/lib/assessment/schemeGate";
 import type {
   AiAnnotationResult,
   AiNovelApproachResult,
@@ -109,12 +110,12 @@ export async function runPipelineForQuestionResponse(
           rubric: {
             select: {
               activeVersionId: true,
-              activeVersion: { select: { id: true, solutionApproaches: true, markingCheckpoints: true } },
+              activeVersion: { select: { id: true, solutionApproaches: true, markingCheckpoints: true, approvedAt: true } },
             },
           },
         },
       },
-      rubricVersionUsed: { select: { id: true, solutionApproaches: true, markingCheckpoints: true } },
+      rubricVersionUsed: { select: { id: true, solutionApproaches: true, markingCheckpoints: true, approvedAt: true } },
     },
   });
 
@@ -149,13 +150,25 @@ export async function runPipelineForQuestionResponse(
 
     const pinned = await prisma.questionResponse.findUnique({
       where: { id: questionResponseId },
-      select: { rubricVersionUsed: { select: { id: true, solutionApproaches: true, markingCheckpoints: true } } },
+      select: { rubricVersionUsed: { select: { id: true, solutionApproaches: true, markingCheckpoints: true, approvedAt: true } } },
     });
     rubricVersion = pinned?.rubricVersionUsed ?? response.question.rubric?.activeVersion ?? null;
   }
 
   if (!rubricVersion) {
     return empty("BLOCKED_NO_ACTIVE_RUBRIC");
+  }
+
+  // Nothing is marked against a scheme no teacher has approved (decision D8). The answer is parked
+  // for the teacher with a clear reason, never given a mark, and picked up again on approval.
+  if (!mayMarkAgainst(rubricVersion)) {
+    await holdForUnapprovedScheme({
+      responseId: questionResponseId,
+      assessmentId: response.question.assessmentId,
+      submissionId: response.submissionId,
+      questionId: response.questionId,
+    });
+    return empty("BLOCKED_SCHEME_NOT_APPROVED");
   }
 
   // --- Idempotency / lightweight concurrency guard. ---

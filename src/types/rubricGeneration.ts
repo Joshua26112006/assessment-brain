@@ -1,3 +1,4 @@
+import type { SchemeCriterion } from "@/lib/scheme/criteria";
 import type { StructuredExpectation } from "@/types/structuredCorrection";
 
 /**
@@ -36,7 +37,10 @@ export interface RubricMarkingCheckpoint {
 export interface RubricDraft {
   expectedAnswer: string;
   solutionApproaches: RubricSolutionApproach[];
+  /** The same scheme in the older description-and-marks form, kept so existing readers keep working. */
   markingCheckpoints: RubricMarkingCheckpoint[];
+  /** The scheme proper: criteria by kind, in half marks, adding up to the question's maximum (decisions D8 to D12). */
+  criteria: SchemeCriterion[];
   partialCreditGuidance: string;
   /**
    * Machine-comparable view of the same rubric, generated alongside the prose
@@ -53,6 +57,7 @@ export interface RawRubricDraft {
   expectedAnswer?: unknown;
   solutionApproaches?: unknown;
   markingCheckpoints?: unknown;
+  criteria?: unknown;
   partialCreditGuidance?: unknown;
   structuredExpectation?: unknown;
 }

@@ -118,9 +118,14 @@ export async function generateRubricForQuestion(questionId: string): Promise<voi
         data: {
           rubricId: rubric.id,
           versionNumber: nextVersionNumber,
-          status: "ACTIVE",
+          // The AI drafts; a teacher approves (decision D8). Nothing is marked against this
+          // version until approveScheme gives it an approvedAt and makes it ACTIVE.
+          status: "DRAFT",
+          approvedAt: null,
+          approvedById: null,
           solutionApproaches: draft.solutionApproaches as unknown as object,
           markingCheckpoints: draft.markingCheckpoints as unknown as object,
+          criteria: draft.criteria as unknown as object,
           expectedAnswer: draft.expectedAnswer,
           partialCreditGuidance: draft.partialCreditGuidance,
           structuredExpectation: (draft.structuredExpectation as unknown as object) ?? undefined,

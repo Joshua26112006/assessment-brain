@@ -1,6 +1,7 @@
 import type { QuestionResponseStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { createReviewItemIfNeeded } from "@/lib/assessment/pipelineReviewItems";
+import { holdForUnapprovedScheme, mayMarkAgainst } from "@/lib/assessment/schemeGate";
 import { loadOrderedAnswerSheetPages } from "@/lib/handwritten/pages";
 import { readStructuredAnswers } from "@/lib/structuredCorrection/structuredReading";
 import { correctStructuredQuestion, type StructuredQuestionCorrection } from "@/lib/structuredCorrection/pipeline";
@@ -37,6 +38,8 @@ interface QuestionContext {
   markingCheckpoints: RubricMarkingCheckpoint[];
   structuredExpectation: StructuredExpectation | null;
   rubricVersionId: string | null;
+  /** A teacher has approved this question's scheme (decision D8). Nothing is marked against one that is not. */
+  schemeApproved: boolean;
   responseId: string;
   sourcePages: number[];
   /** What the answer-mapping stage found written for this question. */
@@ -114,6 +117,7 @@ async function loadQuestionContexts(submissionId: string, assessmentId: string):
                 partialCreditGuidance: true,
                 markingCheckpoints: true,
                 structuredExpectation: true,
+                approvedAt: true,
               },
             },
           },
@@ -149,6 +153,7 @@ async function loadQuestionContexts(submissionId: string, assessmentId: string):
         markingCheckpoints: (version?.markingCheckpoints as unknown as RubricMarkingCheckpoint[]) ?? [],
         structuredExpectation: (version?.structuredExpectation as unknown as StructuredExpectation) ?? null,
         rubricVersionId: version?.id ?? null,
+        schemeApproved: mayMarkAgainst(version),
         responseId: response.id,
         sourcePages: Array.isArray(studentAnswer.sourcePages)
           ? studentAnswer.sourcePages.filter((page): page is number => typeof page === "number")
@@ -333,7 +338,22 @@ export async function runStructuredCorrectionForSubmission(submissionId: string)
   });
   if (!submission) return;
 
-  const contexts = await loadQuestionContexts(submissionId, submission.assessmentId);
+  const allContexts = await loadQuestionContexts(submissionId, submission.assessmentId);
+
+  // Nothing is marked against a scheme no teacher has approved (decision D8). Those answers are
+  // parked for the teacher with a clear reason and are picked up again when the scheme is approved.
+  const held = allContexts.filter((context) => !context.schemeApproved);
+  await Promise.all(
+    held.map((context) =>
+      holdForUnapprovedScheme({
+        responseId: context.responseId,
+        assessmentId: submission.assessmentId,
+        submissionId,
+        questionId: context.questionId,
+      }),
+    ),
+  );
+  const contexts = allContexts.filter((context) => context.schemeApproved);
   if (contexts.length === 0) return;
 
   let pages;

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useActionState } from "react";
 import { buttonClass } from "@/components/ui/styles";
 import StatusBadge from "@/components/ui/StatusBadge";
-import { generateAllRubrics, type ActionState } from "./actions";
+import { approveAllSchemesAction, generateAllRubrics, type ActionState } from "./actions";
 import type { AssessmentReadiness } from "@/lib/assessment/readiness";
 
 const initialState: ActionState = {};
@@ -42,6 +42,38 @@ const initialState: ActionState = {};
  * label changes.
  */
 export default function RubricGenerationActions({
+  assessmentId,
+  readiness,
+}: {
+  assessmentId: string;
+  readiness: AssessmentReadiness;
+}) {
+  const [approveState, approveAction, approving] = useActionState(approveAllSchemesAction.bind(null, assessmentId), initialState);
+  const needsApproval = readiness.awaitingApprovalCount > 0;
+
+  return (
+    <div className="flex flex-col items-end gap-3">
+      {needsApproval && (
+        <div className="flex flex-col items-end gap-1.5">
+          <form action={approveAction}>
+            <button type="submit" disabled={approving} className={buttonClass("primary")}>
+              {approving
+                ? "Approving…"
+                : `Approve ${readiness.awaitingApprovalCount === readiness.totalQuestions ? "all" : readiness.awaitingApprovalCount} marking scheme${readiness.awaitingApprovalCount === 1 ? "" : "s"}`}
+            </button>
+          </form>
+          <p className="max-w-72 text-right text-xs text-muted">
+            Check each scheme under its question first. Nothing is marked until a scheme is approved.
+          </p>
+          {approveState.error && <p role="alert" className="max-w-72 text-right text-xs font-medium text-danger">{approveState.error}</p>}
+        </div>
+      )}
+      <GenerationControls assessmentId={assessmentId} readiness={readiness} />
+    </div>
+  );
+}
+
+function GenerationControls({
   assessmentId,
   readiness,
 }: {
@@ -105,6 +137,10 @@ export default function RubricGenerationActions({
       </div>
     );
   }
+
+  // Nothing left to generate. When the only thing outstanding is approval, the approve button above
+  // is the call to action.
+  if (readiness.reviewRequiredCount === 0) return null;
 
   // Only remaining possibility: reviewRequiredCount > 0 and nothing else is
   // outstanding — there's nothing left for a bulk action to generate.

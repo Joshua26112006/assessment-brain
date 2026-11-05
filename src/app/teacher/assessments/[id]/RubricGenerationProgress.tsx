@@ -6,6 +6,7 @@ const ICON: Record<RubricReadinessBucket, string> = {
   GENERATING: "⏳",
   FAILED: "⚠",
   REVIEW_REQUIRED: "⚠",
+  AWAITING_APPROVAL: "◔",
   PENDING: "○",
   MISSING: "○",
 };
@@ -15,6 +16,7 @@ const ICON_TONE: Record<RubricReadinessBucket, string> = {
   GENERATING: "text-info",
   FAILED: "text-danger",
   REVIEW_REQUIRED: "text-danger",
+  AWAITING_APPROVAL: "text-warning",
   PENDING: "text-subtle",
   MISSING: "text-subtle",
 };
@@ -24,6 +26,7 @@ const STATE_LABEL: Record<RubricReadinessBucket, string> = {
   GENERATING: "Analyzing",
   FAILED: "Failed",
   REVIEW_REQUIRED: "Needs review",
+  AWAITING_APPROVAL: "Waiting for your approval",
   PENDING: "Waiting",
   MISSING: "Waiting",
 };
@@ -46,8 +49,8 @@ export default function RubricGenerationProgress({ readiness }: { readiness: Ass
     <div className="mt-4">
       <div className="flex items-center justify-between text-xs font-medium text-muted">
         <span>
-          {readiness.readyCount} of {readiness.totalQuestions} rubric
-          {readiness.totalQuestions === 1 ? "" : "s"} complete
+          {readiness.readyCount} of {readiness.totalQuestions} marking scheme
+          {readiness.totalQuestions === 1 ? "" : "s"} approved
         </span>
         <span className="tabular-nums">{percent}%</span>
       </div>

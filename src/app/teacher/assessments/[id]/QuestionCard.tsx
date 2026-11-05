@@ -8,6 +8,7 @@ import DeleteQuestionButton from "./DeleteQuestionButton";
 import RubricEditor from "./RubricEditor";
 import RubricViewer, { type RubricViewerApproach, type RubricViewerCheckpoint } from "./RubricViewer";
 import RetryRubricButton from "./RetryRubricButton";
+import SchemeApproval, { type SchemeCriterionView } from "./SchemeApproval";
 
 export type QuestionCardData = {
   id: string;
@@ -28,6 +29,11 @@ export type QuestionCardData = {
       partialCreditGuidance: string | null;
       solutionApproaches: RubricViewerApproach[];
       markingCheckpoints: RubricViewerCheckpoint[];
+      /** Set once a teacher has approved this scheme (decision D8). */
+      approvedAt: string | null;
+      criteria: SchemeCriterionView[];
+      followThrough: string;
+      noWorkingRule: string;
     } | null;
     versionCount: number;
   } | null;
@@ -107,7 +113,11 @@ export default function QuestionCard({ question }: { question: QuestionCardData 
               aria-expanded={isRubricOpen}
               className="flex w-full flex-wrap items-center gap-2 text-left text-sm"
             >
-              <StatusBadge label={readyBadge.label} tone={readyBadge.tone} size="sm" />
+              {activeVersion.approvedAt ? (
+                <StatusBadge label="Scheme approved" tone="success" size="sm" />
+              ) : (
+                <StatusBadge label="Needs your approval" tone="warning" size="sm" />
+              )}
               <span className="text-xs text-muted">
                 {activeVersion.solutionApproaches.length} approach
                 {activeVersion.solutionApproaches.length === 1 ? "" : "es"} ·{" "}
@@ -130,6 +140,14 @@ export default function QuestionCard({ question }: { question: QuestionCardData 
                     markingCheckpoints: activeVersion.markingCheckpoints,
                     partialCreditGuidance: activeVersion.partialCreditGuidance,
                   }}
+                />
+
+                <SchemeApproval
+                  questionId={question.id}
+                  approved={activeVersion.approvedAt !== null}
+                  criteria={activeVersion.criteria}
+                  followThrough={activeVersion.followThrough}
+                  noWorkingRule={activeVersion.noWorkingRule}
                 />
 
                 <div className="mt-3">

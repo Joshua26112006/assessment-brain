@@ -37,7 +37,7 @@ const drawOnPages = vi.mocked(annotateAnswerSheet);
 
 const SUBMISSION = "sub1";
 
-function questionRow(number: number) {
+function questionRow(number: number, approved = true) {
   return {
     id: `q${number}`,
     questionNumber: number,
@@ -51,6 +51,8 @@ function questionRow(number: number) {
         partialCreditGuidance: null,
         markingCheckpoints: [],
         structuredExpectation: null,
+        // A teacher has approved the scheme (decision D8); without this nothing is marked.
+        approvedAt: approved ? new Date("2026-11-05T09:00:00Z") : null,
       },
     },
   };
@@ -81,7 +83,7 @@ function setUpSubmission(questionNumbers: number[], responses = questionNumbers.
     assessmentId: "a1",
     assessment: { subject: "Physics" },
   } as never);
-  db.question.findMany.mockResolvedValue(questionNumbers.map(questionRow) as never);
+  db.question.findMany.mockResolvedValue(questionNumbers.map((n) => questionRow(n)) as never);
   db.questionResponse.findMany.mockResolvedValue(responses as never);
   db.questionResponse.update.mockResolvedValue({} as never);
   db.questionResponse.updateMany.mockResolvedValue({ count: 1 } as never);
@@ -100,6 +102,47 @@ function flaggedResponseIds(): string[] {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.spyOn(console, "error").mockImplementation(() => {});
+});
+
+describe("runStructuredCorrectionForSubmission — nothing is marked against an unapproved scheme (D8)", () => {
+  it("parks an answer whose scheme has no approval, with a clear reason, and never calls the marker for it", async () => {
+    setUpSubmission([1]);
+    db.question.findMany.mockResolvedValue([questionRow(1, false)] as never);
+    readSheet.mockResolvedValue(new Map());
+
+    await runStructuredCorrectionForSubmission(SUBMISSION);
+
+    expect(correct).not.toHaveBeenCalled();
+    expect(readSheet).not.toHaveBeenCalled();
+    expect(db.questionResponse.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ id: "r1" }), data: { status: "NEEDS_REVIEW" } }),
+    );
+    expect(flagForTeacher).toHaveBeenCalledTimes(1);
+    expect(flagForTeacher.mock.calls[0][0]).toMatchObject({ reason: "SCHEME_NOT_APPROVED", questionResponseId: "r1", submissionId: SUBMISSION });
+  });
+
+  it("still marks the questions whose schemes ARE approved, in the same submission", async () => {
+    setUpSubmission([1, 2]);
+    db.question.findMany.mockResolvedValue([questionRow(1, false), questionRow(2, true)] as never);
+    readSheet.mockResolvedValue(new Map([[2, reading(2)]]));
+    correct.mockResolvedValue({ score: null, explanations: [], reading: reading(2), comparison: { status: "compared", matchedApproachLabel: null, errors: [], matchedVariableCount: 0, totalExpectedVariableCount: 0 }, verification: null, findings: [] } as never);
+
+    await runStructuredCorrectionForSubmission(SUBMISSION);
+
+    expect(correct).toHaveBeenCalledTimes(1);
+    expect(correct.mock.calls[0][0].questionNumber).toBe(2);
+    expect(flagForTeacher.mock.calls.some(([args]) => args.reason === "SCHEME_NOT_APPROVED" && args.questionResponseId === "r1")).toBe(true);
+  });
+
+  it("does not hold a question that has no rubric version at all differently from before: it is held too", async () => {
+    setUpSubmission([1]);
+    db.question.findMany.mockResolvedValue([{ ...questionRow(1), rubric: null }] as never);
+
+    await runStructuredCorrectionForSubmission(SUBMISSION);
+
+    expect(correct).not.toHaveBeenCalled();
+    expect(flagForTeacher.mock.calls[0][0]).toMatchObject({ reason: "SCHEME_NOT_APPROVED" });
+  });
 });
 
 describe("runStructuredCorrectionForSubmission — nothing is ever left pending with nobody told", () => {

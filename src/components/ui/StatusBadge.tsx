@@ -222,6 +222,10 @@ export function reviewReasonBadge(reason: string): BadgeDescriptor {
       return { label: "Uncertain feedback", tone: "warning" };
     case "UNDETERMINED_GRADING":
       return { label: "No mark determined", tone: "warning" };
+    case "SCHEME_NOT_APPROVED":
+      return { label: "Scheme not approved", tone: "warning" };
+    case "SCHEME_CHANGED":
+      return { label: "Scheme changed", tone: "warning" };
     case "INVALID_ANSWER_SHEET":
       return { label: "Not a valid answer sheet", tone: "danger" };
     default:
@@ -237,6 +241,8 @@ export const REVIEW_REASON_DESCRIPTION: Record<string, string> = {
   VERIFICATION_FAILURE: "Evaluation could not be completed for this response.",
   AMBIGUOUS_ANNOTATION: "Feedback generation was uncertain.",
   UNDETERMINED_GRADING: "A mark could not be determined automatically.",
+  SCHEME_NOT_APPROVED: "This question's marking scheme has not been approved, so nothing was marked. Approve the scheme, or give a mark yourself.",
+  SCHEME_CHANGED: "The marking scheme changed after this mark was accepted or confirmed. The mark was not changed; decide whether it still stands (reopen the submission if it was confirmed).",
   INVALID_ANSWER_SHEET: "The uploaded pages don't look like a usable answer sheet for this assessment.",
   OTHER: "Flagged for your review.",
 };
