@@ -313,25 +313,31 @@ describe("compareReadingToRubric — variable aliases (a student names a quantit
     const base = rubric("100", { u: "8", a: "2" });
     return aliases ? { ...base, approaches: [{ ...base.approaches[0], aliases }] } : base;
   };
+  // "starting speed" is deliberately not one of the standard names for u (see variableAliases.ts), so only the scheme can link it.
   const wrongInitial = () =>
-    reading({ transcription: "initial speed = 3, a = 2, answer 120", variables: { "initial speed": "3", a: "2" }, answer: "120" });
+    reading({ transcription: "starting speed = 3, a = 2, answer 120", variables: { "starting speed": "3", a: "2" }, answer: "120" });
 
   it("without an alias the student's differently-named value is not found, so the quantity reads as missing", () => {
     expect(findings(wrongInitial(), key())).toContain("MISSING_STEP(u)");
   });
 
   it("with the alias the value is found, and a wrong one is reported as a wrong substitution, not as missing", () => {
-    const result = findings(wrongInitial(), key({ u: ["initial speed", "v0"] }));
+    const result = findings(wrongInitial(), key({ u: ["starting speed", "v0"] }));
     expect(result).toContain("WRONG_SUBSTITUTION(u)");
     expect(result).not.toContain("MISSING_STEP(u)");
   });
 
   it("a correct value under an alias raises nothing", () => {
-    const r = reading({ transcription: "initial speed = 8, a = 2, answer 100", variables: { "initial speed": "8", a: "2" }, answer: "100" });
-    expect(findings(r, key({ u: ["initial speed"] }))).toEqual([]);
+    const r = reading({ transcription: "starting speed = 8, a = 2, answer 100", variables: { "starting speed": "8", a: "2" }, answer: "100" });
+    expect(findings(r, key({ u: ["starting speed"] }))).toEqual([]);
   });
 
   it("an alias the student never wrote changes nothing", () => {
     expect(findings(wrongInitial(), key({ u: ["v0"] }))).toContain("MISSING_STEP(u)");
+  });
+
+  it("the standard names are found without the scheme listing them", () => {
+    const r = reading({ transcription: "initial speed = 3, a = 2, answer 120", variables: { "initial speed": "3", a: "2" }, answer: "120" });
+    expect(findings(r, key())).toContain("WRONG_SUBSTITUTION(u)");
   });
 });

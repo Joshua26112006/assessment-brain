@@ -1,5 +1,6 @@
 import { parseNumericExpression } from "@/lib/structuredCorrection/numericExpression";
 import { checkUnit, convertToUnit, parseUnit, splitQuantity } from "@/lib/structuredCorrection/units";
+import { mergeAliases } from "@/lib/structuredCorrection/variableAliases";
 import type {
   ComparisonError,
   ComparisonErrorType,
@@ -464,7 +465,8 @@ function compareAgainstApproach(
       !(correctAnswer?.parsed != null && unitMayExplainDifference(correctAnswer, reading.studentAnswer)));
 
   for (const [expectedName, expectedValue] of expectedEntries) {
-    const aliases = approach.aliases?.[expectedName] ?? [];
+    // The scheme's own aliases, plus the standard school names for the quantity (u = v0 = initial velocity).
+    const aliases = mergeAliases(expectedName, approach.aliases?.[expectedName]);
     const found = lookupStudentValue(studentValues, expectedName, aliases);
 
     if (!found) {
