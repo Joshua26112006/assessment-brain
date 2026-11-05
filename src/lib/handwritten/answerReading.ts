@@ -116,6 +116,8 @@ export async function readHandwrittenSubmission(
     userContent,
     temperature: 0.1,
     maxAttempts: 2,
+    // Every answer of the whole paper in one reply: roomy, but not the model's whole 65,536.
+    maxTokens: 32_000,
     stage: "HANDWRITTEN_ANSWER_READING",
   });
 

@@ -89,6 +89,8 @@ export async function extractQuestionPaperWithAi(
     userContent,
     temperature: 0.1,
     maxAttempts: 2,
+    // A whole question paper with its parts and choices in one reply: roomy, but not the model's whole 65,536.
+    maxTokens: 32_000,
     stage: "QUESTION_PAPER_EXTRACTION",
   });
 

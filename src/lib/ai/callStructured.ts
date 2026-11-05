@@ -5,6 +5,13 @@ import { recordAiCallUsage } from "@/lib/ai/usageLog";
 import type { StructuredAiCallOptions, StructuredAiCallWithContentOptions } from "@/lib/ai/types";
 
 /**
+ * The most a reply may run to when a caller names no limit. Without one the provider is asked for the model's whole
+ * output limit (65,536 tokens here), which reserves far more credit than any of these replies use and was refused outright
+ * once a key's balance ran low. A caller whose reply can be longer says so itself (the whole-sheet read, a question paper).
+ */
+export const DEFAULT_MAX_TOKENS = 16_000;
+
+/**
  * Sends one structured-JSON chat request to OpenRouter and returns the
  * parsed (but NOT contract-validated) response body. Every caller must
  * still validate the returned shape against its own stage contract before
@@ -25,7 +32,7 @@ export async function callStructuredAi<T>(options: StructuredAiCallOptions): Pro
         model: options.model,
         temperature: options.temperature ?? 0.2,
         seed: options.seed,
-        max_tokens: options.maxTokens,
+        max_tokens: options.maxTokens ?? DEFAULT_MAX_TOKENS,
         messages: [
           { role: "system", content: options.systemPrompt },
           { role: "user", content: options.userPrompt },
@@ -76,7 +83,7 @@ export async function callStructuredAiWithContent<T>(
         model: options.model,
         temperature: options.temperature ?? 0.2,
         seed: options.seed,
-        max_tokens: options.maxTokens,
+        max_tokens: options.maxTokens ?? DEFAULT_MAX_TOKENS,
         messages: [
           { role: "system", content: options.systemPrompt },
           { role: "user", content: options.userContent },
