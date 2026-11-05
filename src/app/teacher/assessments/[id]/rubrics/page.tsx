@@ -92,6 +92,7 @@ export default async function AssessmentRubricsPage({
     assessment.questions.map((q) => ({
       id: q.id,
       questionNumber: q.questionNumber,
+      label: q.label,
       maximumMarks: q.maximumMarks,
       rubric: q.rubric
         ? {
@@ -103,6 +104,7 @@ export default async function AssessmentRubricsPage({
           }
         : null,
     })),
+    assessment.questionTree,
   );
 
   return (

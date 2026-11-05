@@ -79,6 +79,7 @@ export default async function AssessmentDetailPage({
     assessment.questions.map((q) => ({
       id: q.id,
       questionNumber: q.questionNumber,
+      label: q.label,
       maximumMarks: q.maximumMarks,
       rubric: q.rubric
         ? {
@@ -91,6 +92,7 @@ export default async function AssessmentDetailPage({
           }
         : null,
     })),
+    assessment.questionTree,
   );
   const readinessExplanation = describeAssessmentReadiness(readiness);
 

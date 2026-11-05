@@ -1,5 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { paperTotals } from "@/lib/questions/paperScore";
 
 /**
  * Phase 4.2 — the single source of truth for "is this assessment allowed to
@@ -127,7 +128,7 @@ function bucketFor(rubric: QuestionForReadiness["rubric"]): RubricReadinessBucke
  * questions the caller has (the assessment detail page already has this
  * from getOwnedAssessmentOrNotFound) so it never needs its own round trip.
  */
-export function computeAssessmentReadiness(questionsInput: QuestionForReadiness[]): AssessmentReadiness {
+export function computeAssessmentReadiness(questionsInput: QuestionForReadiness[], questionTree?: unknown): AssessmentReadiness {
   const questions: QuestionReadiness[] = questionsInput.map((q) => ({
     questionId: q.id,
     questionNumber: q.questionNumber,
@@ -140,7 +141,11 @@ export function computeAssessmentReadiness(questionsInput: QuestionForReadiness[
   }));
 
   const totalQuestions = questions.length;
-  const totalMarks = questions.reduce((sum, q) => sum + q.maximumMarks, 0);
+  // What the paper is OUT OF: parts add up, "(a) OR (b)" counts one, "any N of M" counts N. For a plain list it is the sum.
+  const totalMarks = paperTotals(
+    questionTree ?? null,
+    questions.map((q) => ({ questionId: q.questionId, maximumMarks: q.maximumMarks, awardedMarks: null, attempted: false })),
+  ).maximum;
   const readyCount = questions.filter((q) => q.bucket === "READY").length;
   const generatingCount = questions.filter((q) => q.bucket === "GENERATING").length;
   const pendingCount = questions.filter((q) => q.bucket === "PENDING").length;
@@ -176,6 +181,7 @@ export function computeAssessmentReadiness(questionsInput: QuestionForReadiness[
  * the teacher actually clicks Publish.
  */
 export async function getAssessmentReadiness(assessmentId: string): Promise<AssessmentReadiness> {
+  const assessment = await prisma.assessment.findUnique({ where: { id: assessmentId }, select: { questionTree: true } });
   const questions = await prisma.question.findMany({
     where: { assessmentId },
     orderBy: { questionNumber: "asc" },
@@ -197,7 +203,7 @@ export async function getAssessmentReadiness(assessmentId: string): Promise<Asse
     },
   });
 
-  return computeAssessmentReadiness(questions);
+  return computeAssessmentReadiness(questions, assessment?.questionTree);
 }
 
 export interface ReadinessExplanation {
