@@ -160,8 +160,11 @@ describe("parseNumericExpression — recurring decimals (Phase 7)", () => {
     expect(parseNumericExpression("0.66…")).toBeCloseTo(0.66, 9);
   });
 
-  it("a bar over a digit is not read: it is not a number the parser can be sure of", () => {
-    expect(parseNumericExpression("0.3̅")).toBeNull();
+  it("a bar over the repeating digit is read as the repeating decimal (second batch)", () => {
+    expect(parseNumericExpression("0.3̅")).toBeCloseTo(1 / 3, 10);
+  });
+
+  it("a bracket instead of a bar is still not read: 0.(3) could be a product", () => {
     expect(parseNumericExpression("0.(3)")).toBeNull();
   });
 });

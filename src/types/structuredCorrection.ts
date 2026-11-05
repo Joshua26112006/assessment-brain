@@ -24,6 +24,10 @@ export interface ExtractedValue {
    * is null, because there is no single number. Compared as a set, never value by value.
    */
   parsedSet?: number[];
+  /** An interval in bracket notation, "[1, 5)". Compared end by end, with whether each end is included. */
+  parsedInterval?: { lo: number; hi: number; loOpen: boolean; hiOpen: boolean };
+  /** An ordered pair or triple, "(2, 3)". Compared in the order written. */
+  parsedTuple?: number[];
   /**
    * The unit written with this value, when it is one the unit module recognises
    * ("m/s^2", "mg"). Stored on the rubric's correct answer so the comparison

@@ -1,4 +1,4 @@
-import { parseNumericExpression, parseNumericSet, type ParseOptions } from "@/lib/structuredCorrection/numericExpression";
+import { parseStructuredValue, type ParseOptions } from "@/lib/structuredCorrection/numericExpression";
 import type { ExtractedValue, ReconciledReading, StructuredExpectation } from "@/types/structuredCorrection";
 
 /**
@@ -11,11 +11,8 @@ import type { ExtractedValue, ReconciledReading, StructuredExpectation } from "@
  */
 
 function reread(value: ExtractedValue, options: ParseOptions): ExtractedValue {
-  if (value.parsed !== null || value.parsedSet !== undefined || !value.raw) return value;
-  const parsed = parseNumericExpression(value.raw, options);
-  if (parsed !== null) return { ...value, parsed };
-  const parsedSet = parseNumericSet(value.raw, options);
-  return parsedSet ? { ...value, parsedSet } : value;
+  if (value.parsed !== null || value.parsedSet !== undefined || value.parsedInterval !== undefined || value.parsedTuple !== undefined || !value.raw) return value;
+  return { ...value, ...parseStructuredValue(value.raw, options) };
 }
 
 export function applyNumberFormats(

@@ -1,4 +1,4 @@
-import { parseNumericExpression, parseNumericSet } from "@/lib/structuredCorrection/numericExpression";
+import { parseStructuredValue } from "@/lib/structuredCorrection/numericExpression";
 import { splitQuantity } from "@/lib/structuredCorrection/units";
 import {
   PROBLEM_TYPES,
@@ -62,10 +62,8 @@ function toTrimmed(value: unknown, maxLength: number): string {
 function toExtractedValue(value: unknown): ExtractedValue {
   const raw = toTrimmed(value, MAX_VALUE_LENGTH);
   const unit = raw ? splitQuantity(raw).unitText : null;
-  const parsed = raw ? parseNumericExpression(raw) : null;
-  // An answer with several values ("x = 2 or x = -3") has no single number; it is kept as a set.
-  const parsedSet = raw && parsed === null ? parseNumericSet(raw) : null;
-  return { raw, parsed, ...(parsedSet ? { parsedSet } : {}), ...(unit ? { unit } : {}) };
+  // One number, or an answer with several values (a set, an interval, an ordered pair), kept in that shape.
+  return { raw, ...parseStructuredValue(raw), ...(unit ? { unit } : {}) };
 }
 
 function toProblemType(value: unknown): ProblemType {

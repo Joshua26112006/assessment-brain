@@ -322,6 +322,23 @@ function compareValue(
   return { type: mismatchType, expected, actual, comparisonMethod: "numeric", tolerance };
 }
 
+/**
+ * Whether two written values are the same interval, or the same ordered pair. True or false when both are written in the
+ * same shape; null when they are not (an interval against a number, a pair against a set), which is never "wrong".
+ */
+export function sameShape(a: ExtractedValue, b: ExtractedValue): boolean | null {
+  if (a.parsedInterval && b.parsedInterval) {
+    const x = a.parsedInterval;
+    const y = b.parsedInterval;
+    const near = (p: number, q: number) => p === q || Math.abs(p - q) <= numericTolerance(p);
+    return near(x.lo, y.lo) && near(x.hi, y.hi) && x.loOpen === y.loOpen && x.hiOpen === y.hiOpen;
+  }
+  if (a.parsedTuple && b.parsedTuple) {
+    return a.parsedTuple.length === b.parsedTuple.length && a.parsedTuple.every((value, index) => Math.abs(value - b.parsedTuple![index]) <= numericTolerance(value));
+  }
+  return null;
+}
+
 /** Two sets of values are the same set: the same number of values, each matching its partner within tolerance. */
 export function setsAgree(a: number[], b: number[]): boolean {
   if (a.length !== b.length) return false;
@@ -353,6 +370,16 @@ export function finalAnswerVerdict(
     const otherPass = reading.secondPass === undefined ? undefined : (reading.secondPass?.studentAnswer ?? null);
     if (reading.secondPass !== undefined && !(otherPass?.parsedSet && setsAgree(written, otherPass.parsedSet))) return null;
     return setsAgree(key.parsedSet, written);
+  }
+
+  // An interval or an ordered pair, judged the same careful way as a set: whole against whole, and only when sure.
+  if (key?.parsedInterval || key?.parsedTuple) {
+    const written = reading.studentAnswer;
+    if (!reading.attempted || !written) return null;
+    if (reading.structureConfidence === "low" || reading.agreementConfidence === "low") return null;
+    const otherPass = reading.secondPass === undefined ? undefined : (reading.secondPass?.studentAnswer ?? null);
+    if (reading.secondPass !== undefined && !(otherPass && sameShape(written, otherPass) === true)) return null;
+    return sameShape(key, written);
   }
 
   if (!key || key.parsed === null) return null;

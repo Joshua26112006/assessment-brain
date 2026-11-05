@@ -86,6 +86,8 @@ export function parseNumericExpression(raw: string, options: ParseOptions = {}):
 
   // Written-out forms of two symbols: "sqrt(2)" and "pi". Only whole words, so a sentence is not rewritten.
   normalized = normalized.replace(/\bsqrt\b/gi, "√").replace(/\bpi\b/gi, "π");
+  // A recurring decimal written with a bar or dots over the repeating digits (0.3̄, 0.1̄2̄, 0.3̇, 0.1̇2̇).
+  normalized = expandRecurring(normalized);
   // A trailing ellipsis on a decimal ("0.333...", "0.33…") says "and so on"; the digits written are the value.
   normalized = normalized.replace(/(?<=\d)\s*(?:\.{3}|…)$/, "");
   // A percentage, only when the question accepts one.
@@ -307,6 +309,100 @@ function parsePrimary(source: string, index: number): { value: number; end: numb
   while (end < source.length && /[\d.]/.test(source[end])) end++;
   if (end === i) throw new Error("Expected a number.");
   return { value: parseFloat(source.slice(i, end)), end };
+}
+
+/**
+ * A recurring decimal marked with a bar over each repeating digit (0.3̄ = 1/3, 0.1̄2̄ = 0.121212...) or dots over the first
+ * and last repeating digit (0.1̇2̇ = 0.121212..., 0.3̇ = 0.333...), replaced by its value. Digits without a mark are the
+ * part that does not repeat (0.16̄ = 0.1666...). Text without such a mark is returned unchanged.
+ */
+export function expandRecurring(text: string): string {
+  // The same, written the way a model often transcribes a bar: 0.\overline{3}, 0.1\overline{6}, 0.\dot{3}.
+  text = text.replace(/(\d*)\.(\d*)\\(?:overline|bar|dot)\{(\d+)\}/g, (_whole, whole: string, fixed: string, repeating: string) => {
+    if (repeating.length > 10 || fixed.length > 10) return _whole;
+    const nonRepeating = Number(fixed === "" ? "0" : fixed) / 10 ** fixed.length;
+    const repeatingValue = Number(repeating) / (10 ** repeating.length - 1) / 10 ** fixed.length;
+    return String(Number(whole === "" ? "0" : whole) + nonRepeating + repeatingValue);
+  });
+  return text.replace(/(\d*)\.(\d*)((?:\d[\u0304\u0305])+|\d\u0307(?:\d*\d\u0307)?)/g, (_whole, whole: string, fixed: string, marked: string) => {
+    const dotted = marked.includes("\u0307");
+    const repeating = dotted ? marked.replace(/\u0307/g, "") : marked.replace(/[\u0304\u0305]/g, "");
+    if (repeating.length === 0 || repeating.length > 10 || fixed.length > 10) return _whole;
+    const nonRepeating = Number(fixed === "" ? "0" : fixed) / 10 ** fixed.length;
+    const repeatingValue = Number(repeating) / (10 ** repeating.length - 1) / 10 ** fixed.length;
+    return String(Number(whole === "" ? "0" : whole) + nonRepeating + repeatingValue);
+  });
+}
+
+/**
+ * An ordered pair or triple, "(2, 3)" or "P(2,3)": the values in the order written. A comma inside brackets is
+ * a separator here (it could not be a decimal comma or a thousands separator), and order matters: (2, 3) is not (3, 2).
+ */
+export function parseCoordinate(raw: string, options: ParseOptions = {}): number[] | null {
+  if (!raw) return null;
+  const text = raw.replace(/−/g, "-").trim().replace(/^(?:[A-Za-z][A-Za-z0-9']*\s*=?\s*)?(?=\()/, "");
+  const match = text.match(/^\(\s*([^,;()]+?)\s*[,;]\s*([^,;()]+?)(?:\s*[,;]\s*([^,;()]+?))?\s*\)$/);
+  if (!match) return null;
+  const values = match.slice(1).filter((part) => part !== undefined).map((part) => parseNumericExpression(part, options));
+  return values.every((value): value is number => value !== null) ? values : null;
+}
+
+export interface NumericInterval {
+  lo: number;
+  hi: number;
+  loOpen: boolean;
+  hiOpen: boolean;
+}
+
+const INFINITY_TEXT = /^([+-]?)\s*(?:∞|inf(?:inity)?)$/i;
+
+function endpoint(text: string, options: ParseOptions): number | null {
+  const infinite = text.trim().match(INFINITY_TEXT);
+  if (infinite) return infinite[1] === "-" ? -Infinity : Infinity;
+  return parseNumericExpression(text.trim(), options);
+}
+
+/**
+ * An interval in bracket notation: "[1, 5)", "(-∞, 3]", "(2, ∞)". Round brackets leave an end out, square brackets
+ * keep it, and an infinite end is always open. Inequalities ("1 < x ≤ 5") are deliberately not read as intervals.
+ */
+export function parseInterval(raw: string, options: ParseOptions = {}): NumericInterval | null {
+  if (!raw) return null;
+  const text = raw.replace(/−/g, "-").trim().replace(/^(?:[A-Za-z][A-Za-z0-9']*\s*(?:=|∈)\s*)/, "");
+  const match = text.match(/^([\[(])\s*([^,;\])]+?)\s*[,;]\s*([^,;\[\])]+?)\s*([\])])$/);
+  if (!match) return null;
+  const lo = endpoint(match[2], options);
+  const hi = endpoint(match[3], options);
+  if (lo === null || hi === null || lo > hi) return null;
+  return {
+    lo,
+    hi,
+    loOpen: match[1] === "(" || lo === -Infinity,
+    hiOpen: match[4] === ")" || hi === Infinity,
+  };
+}
+
+/** The form of a written value that is not one number: a set, an interval or an ordered pair. At most one is present. */
+export interface StructuredValue {
+  parsed: number | null;
+  parsedSet?: number[];
+  parsedInterval?: NumericInterval;
+  parsedTuple?: number[];
+}
+
+/** Reads a written value in every shape the system can compare: one number, a set, an interval or an ordered pair. */
+export function parseStructuredValue(raw: string, options: ParseOptions = {}): StructuredValue {
+  const parsed = raw ? parseNumericExpression(raw, options) : null;
+  if (parsed !== null || !raw) return { parsed };
+  const parsedSet = parseNumericSet(raw, options);
+  if (parsedSet) return { parsed: null, parsedSet };
+  const parsedInterval = parseInterval(raw, options);
+  const parsedTuple = parseCoordinate(raw, options);
+  return {
+    parsed: null,
+    ...(parsedInterval ? { parsedInterval } : {}),
+    ...(parsedTuple ? { parsedTuple } : {}),
+  };
 }
 
 /**
