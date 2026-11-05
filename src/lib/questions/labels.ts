@@ -20,6 +20,17 @@ export function labelOf(question: { label?: string | null; questionNumber: numbe
   return label ? label : String(question.questionNumber);
 }
 
+/**
+ * How a question is listed to a reading model. An ordinary question is listed exactly as it always was
+ * ("Question 4: text"). A part such as 2(a) is listed under the name a student writes, with the number the
+ * model must answer with, because every stage identifies a question by its number.
+ */
+export function questionPromptLine(question: { label?: string | null; questionNumber: number; questionText: string }): string {
+  const label = labelOf(question);
+  if (label === String(question.questionNumber)) return `- Question ${question.questionNumber}: ${question.questionText}`;
+  return `- Question ${label} (refer to it by the number ${question.questionNumber}): ${question.questionText}`;
+}
+
 const ROMAN = ["i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x", "xi", "xii"];
 const LETTER_PARTS = "abcdefgh";
 

@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { runPipelineForQuestionResponse } from "@/lib/assessment/pipeline";
 import { recalculateSubmissionStatus } from "@/lib/assessment/submissionStatusSync";
 import { createReviewItemIfNeeded } from "@/lib/assessment/pipelineReviewItems";
+import { markExactKeyAnswers } from "@/lib/assessment/exactKeyMarking";
 import { hasCheckableRubric, runStructuredCorrectionForSubmission } from "@/lib/structuredCorrection/submission";
 import type { AnswerIndexEntry, AnswerSheetValidationResult, StructuredAnswerIndex } from "./types";
 
@@ -131,6 +132,10 @@ export async function evaluateHandwrittenSubmission(submissionId: string): Promi
       });
     }
   }
+
+  // Answers that are right or wrong exactly (an option letter, one word, a name) are marked in code, with
+  // no model, before either route below. They finish here, so both routes skip them.
+  await markExactKeyAnswers(submissionId);
 
   // A paper whose rubrics carry checkable expectations takes a different route
   // from here: its answers are working to be checked step by step against the

@@ -104,6 +104,12 @@ export async function updateQuestion(
   const maximumMarks = Number(maximumMarksRaw);
   const questionNumberRaw = String(formData.get("questionNumber") ?? "").trim();
   const questionNumber = Number(questionNumberRaw);
+  // How this question is marked. Blank means "work it out from the scheme"; the teacher's choice always wins.
+  const answerTypeRaw = String(formData.get("answerType") ?? "").trim();
+  const ANSWER_TYPES = ["NUMERIC", "SHORT_TEXT", "DESCRIPTIVE", "ESSAY", "EXACT_KEY", "DIAGRAM"];
+  if (answerTypeRaw && !ANSWER_TYPES.includes(answerTypeRaw)) {
+    return { error: "Choose how this question is marked from the list." };
+  }
 
   if (!questionText) {
     return { error: "Question text is required." };
@@ -118,7 +124,7 @@ export async function updateQuestion(
   try {
     await prisma.question.update({
       where: { id: questionId },
-      data: { questionText, maximumMarks, questionNumber },
+      data: { questionText, maximumMarks, questionNumber, answerType: (answerTypeRaw || null) as never },
     });
   } catch (error) {
     if (

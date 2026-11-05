@@ -1,5 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { findQuestionByLabel, labelOf, labelsMatch, normalizeLabel, parseLabel } from "@/lib/questions/labels";
+import { findQuestionByLabel, labelOf, labelsMatch, normalizeLabel, parseLabel, questionPromptLine } from "@/lib/questions/labels";
+
+describe("questionPromptLine", () => {
+  it("lists an ordinary question exactly as before, so existing behaviour is unchanged", () => {
+    expect(questionPromptLine({ questionNumber: 4, questionText: "Find x" })).toBe("- Question 4: Find x");
+    expect(questionPromptLine({ questionNumber: 4, label: "4", questionText: "Find x" })).toBe("- Question 4: Find x");
+    expect(questionPromptLine({ questionNumber: 4, label: null, questionText: "Find x" })).toBe("- Question 4: Find x");
+  });
+
+  it("lists a part under the name a student writes, with the number to answer with", () => {
+    expect(questionPromptLine({ questionNumber: 7, label: "2(a)", questionText: "Define work" })).toBe(
+      "- Question 2(a) (refer to it by the number 7): Define work",
+    );
+  });
+});
 
 describe("labelOf", () => {
   it("uses the stored label, or the number for a question created before labels existed", () => {

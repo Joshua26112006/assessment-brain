@@ -31,6 +31,8 @@ const TERMINAL_STATUSES: QuestionResponseStatus[] = ["GRADED", "NEEDS_REVIEW", "
 interface QuestionContext {
   questionId: string;
   questionNumber: number;
+  /** What the paper calls it ("2(a)"); null for an ordinary question. */
+  label: string | null;
   questionText: string;
   maximumMarks: number;
   expectedAnswer: string | null;
@@ -105,6 +107,7 @@ async function loadQuestionContexts(submissionId: string, assessmentId: string):
       select: {
         id: true,
         questionNumber: true,
+        label: true,
         questionText: true,
         maximumMarks: true,
         rubric: {
@@ -146,6 +149,7 @@ async function loadQuestionContexts(submissionId: string, assessmentId: string):
       {
         questionId: question.id,
         questionNumber: question.questionNumber,
+        label: question.label ?? null,
         questionText: question.questionText,
         maximumMarks: Number(question.maximumMarks),
         expectedAnswer: version?.expectedAnswer ?? null,
@@ -364,6 +368,7 @@ export async function runStructuredCorrectionForSubmission(submissionId: string)
       pages,
       contexts.map((context) => ({
         questionNumber: context.questionNumber,
+        label: context.label,
         questionText: context.questionText,
       })),
     );

@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { requireTeacherSession } from "@/lib/require-teacher";
 import { findCurrentQuestionPaperForTeacher } from "@/lib/questionPaperAccess";
 import { runQuestionPaperExtraction } from "@/lib/questionPaperExtraction";
+import { resolveStructure, treeForQuestions } from "@/lib/questionPaperExtraction/approvalStructure";
 
 export type QuestionPaperActionState = { error?: string; success?: boolean };
 
@@ -150,6 +151,14 @@ export async function approveExtraction(
     return { error: "Every question needs marks before approving — fill in any blanks." };
   }
 
+  // The labels, suggested answer types and structure read from the paper (parts, "(a) OR (b)", "any N of M")
+  // travel with the draft. The review screen only edits text and marks, so a structured paper whose questions
+  // were removed or renumbered is refused rather than having its totals changed silently.
+  const structure = resolveStructure(questions, current.extractedContent);
+  if (!structure.ok) {
+    return { error: structure.message };
+  }
+
   const numbers = questions.map((q) => q.number);
   const duplicateNumbers = numbers.filter((n, i) => numbers.indexOf(n) !== i);
   if (duplicateNumbers.length > 0) {
@@ -198,6 +207,8 @@ export async function approveExtraction(
           questionNumber: q.number,
           questionText: q.text,
           maximumMarks: q.marks as number,
+          label: structure.labels.get(q.number) ?? null,
+          answerType: structure.answerTypes.get(q.number) ?? null,
         })),
       });
 
@@ -208,21 +219,32 @@ export async function approveExtraction(
       // the rows this call just created.
       const created = await tx.question.findMany({
         where: { assessmentId, questionNumber: { in: numbers } },
-        select: { id: true },
+        select: { id: true, questionNumber: true },
       });
 
       await tx.rubric.createMany({
         data: created.map((q) => ({ questionId: q.id })),
       });
 
-      const assessmentUpdate: { title?: string; instructions?: string | null } = {};
+      const assessmentUpdate: { title?: string; instructions?: string | null; questionTree?: Prisma.InputJsonValue } = {};
       if (title) assessmentUpdate.title = title.slice(0, 300);
       assessmentUpdate.instructions = instructionsRaw ? instructionsRaw.slice(0, 4000) : null;
+
+      // The structure, with each leaf pointing at the question it became. If it does not fit these
+      // questions the transaction fails rather than approving a paper whose total would be wrong.
+      if (structure.tree) {
+        const tree = treeForQuestions(structure.tree, new Map(created.map((q) => [q.questionNumber, q.id])));
+        if (!tree) throw new StructureMismatchError();
+        assessmentUpdate.questionTree = tree as unknown as Prisma.InputJsonValue;
+      }
       await tx.assessment.update({ where: { id: assessmentId }, data: assessmentUpdate });
     });
   } catch (error) {
     if (error instanceof AlreadyApprovedRaceError) {
       return { success: true };
+    }
+    if (error instanceof StructureMismatchError) {
+      return { error: "The paper's structure (parts and choices) does not match its questions. Nothing was approved; try extracting the paper again." };
     }
     // A question number collided with one created elsewhere (e.g. a manual
     // Add-question in another tab) in the narrow window between the
@@ -242,3 +264,4 @@ export async function approveExtraction(
 }
 
 class AlreadyApprovedRaceError extends Error {}
+class StructureMismatchError extends Error {}

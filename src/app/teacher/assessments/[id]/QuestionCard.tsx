@@ -13,6 +13,10 @@ import SchemeApproval, { type SchemeCriterionView } from "./SchemeApproval";
 export type QuestionCardData = {
   id: string;
   questionNumber: number;
+  /** What the paper calls it ("2(a)"); null for an ordinary question. */
+  label: string | null;
+  /** How it is marked, as the teacher confirmed or the AI suggested; null when not decided. */
+  answerType: string | null;
   questionText: string;
   maximumMarks: number;
   rubric: {
@@ -77,7 +81,7 @@ export default function QuestionCard({ question }: { question: QuestionCardData 
               {question.questionNumber}
             </span>
             <span className="text-xs font-medium text-subtle">
-              Question {question.questionNumber} · {question.maximumMarks} marks
+              Question {question.label ?? question.questionNumber} · {question.maximumMarks} marks{question.answerType === "DIAGRAM" ? " · you mark this one" : ""}
             </span>
           </div>
 

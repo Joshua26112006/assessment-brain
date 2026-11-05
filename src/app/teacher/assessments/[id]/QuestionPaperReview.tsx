@@ -6,6 +6,7 @@ import { Card } from "@/components/ui/Page";
 import { buttonClass, inputClass, labelClass } from "@/components/ui/styles";
 import StatusBadge from "@/components/ui/StatusBadge";
 import type { ExtractedPaperDraft, ExtractedQuestionDraft } from "@/types/questionPaper";
+import { describeTree } from "@/lib/questionPaperExtraction/structure";
 import {
   approveExtraction,
   retryExtraction,
@@ -26,6 +27,15 @@ export interface QuestionPaperReviewData {
 }
 
 const initialState: QuestionPaperActionState = {};
+
+const ANSWER_TYPE_LABEL: Record<string, string> = {
+  NUMERIC: "a calculation",
+  EXACT_KEY: "one exact answer",
+  SHORT_TEXT: "a short answer",
+  DESCRIPTIVE: "an explanation",
+  ESSAY: "a long answer",
+  DIAGRAM: "a diagram (you mark it)",
+};
 
 /** Polls the server (via a soft refresh) while extraction is still running, so the teacher never has to manually reload to see it finish. */
 function useAutoRefreshWhileProcessing(active: boolean) {
@@ -234,6 +244,12 @@ function ExtractedDraftEditor({
   );
   const [isConfirming, setIsConfirming] = useState(false);
 
+  // A paper with parts, choices or optional groups keeps its structure when approved. Its questions can be
+  // edited (text, marks) but not added, removed, reordered or renumbered here: that would change what the
+  // paper is out of. The server refuses it too; this just stops offering it.
+  const structureLines = draft.tree ? describeTree(draft.tree, new Map(draft.questions.map((q) => [q.number, q.label ?? String(q.number)]))) : [];
+  const structured = Boolean(draft.tree && draft.tree.length > 0);
+
   const action = approveExtraction.bind(null, assessmentId);
   const [state, formAction, isPending] = useActionState(action, initialState);
   const formRef = useRef<HTMLFormElement>(null);
@@ -284,6 +300,23 @@ function ExtractedDraftEditor({
         </ul>
       )}
 
+      {structured && (
+        <div className="mt-3 rounded-lg border border-line bg-surface-muted p-3 text-xs text-muted">
+          <p className="font-semibold text-foreground">This paper has parts or choices.</p>
+          <p className="mt-1">
+            Each part is marked as its own question. You can edit their text and marks, but not add, remove or renumber
+            them here.
+          </p>
+          {structureLines.length > 0 && (
+            <ul className="mt-1.5 flex flex-col gap-1">
+              {structureLines.map((line) => (
+                <li key={line}>• {line}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
       <form ref={formRef} action={formAction} className="mt-4 flex flex-col gap-4">
         <input type="hidden" name="questionsJson" value={questionsJson} />
 
@@ -326,38 +359,46 @@ function ExtractedDraftEditor({
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="flex items-center gap-2">
+                    {question.label && (
+                      <span className="text-sm font-semibold">Question {question.label}</span>
+                    )}
+                    {question.answerType && (
+                      <StatusBadge label={`Suggested: ${ANSWER_TYPE_LABEL[question.answerType] ?? question.answerType}`} tone="neutral" size="sm" />
+                    )}
                     {question.uncertain && (
                       <StatusBadge label="Please double-check" tone="warning" size="sm" />
                     )}
                   </div>
-                  <div className="flex shrink-0 items-center gap-1.5">
-                    <button
-                      type="button"
-                      aria-label={`Move question ${index + 1} up`}
-                      onClick={() => moveQuestion(question.localId, "up")}
-                      disabled={index === 0}
-                      className={buttonClass("secondary", "sm")}
-                    >
-                      ↑
-                    </button>
-                    <button
-                      type="button"
-                      aria-label={`Move question ${index + 1} down`}
-                      onClick={() => moveQuestion(question.localId, "down")}
-                      disabled={index === questions.length - 1}
-                      className={buttonClass("secondary", "sm")}
-                    >
-                      ↓
-                    </button>
-                    <button
-                      type="button"
-                      aria-label={`Remove question ${index + 1}`}
-                      onClick={() => removeQuestion(question.localId)}
-                      className={buttonClass("danger", "sm")}
-                    >
-                      Remove
-                    </button>
-                  </div>
+                  {!structured && (
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      <button
+                        type="button"
+                        aria-label={`Move question ${index + 1} up`}
+                        onClick={() => moveQuestion(question.localId, "up")}
+                        disabled={index === 0}
+                        className={buttonClass("secondary", "sm")}
+                      >
+                        ↑
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`Move question ${index + 1} down`}
+                        onClick={() => moveQuestion(question.localId, "down")}
+                        disabled={index === questions.length - 1}
+                        className={buttonClass("secondary", "sm")}
+                      >
+                        ↓
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`Remove question ${index + 1}`}
+                        onClick={() => removeQuestion(question.localId)}
+                        className={buttonClass("danger", "sm")}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 <div className="mt-3 flex flex-wrap items-end gap-3">
@@ -368,6 +409,7 @@ function ExtractedDraftEditor({
                       min="1"
                       step="1"
                       value={question.number}
+                      disabled={structured}
                       onChange={(e) =>
                         updateQuestion(question.localId, { number: Number(e.target.value) })
                       }
@@ -405,13 +447,15 @@ function ExtractedDraftEditor({
             ))}
           </ul>
 
-          <button
-            type="button"
-            onClick={addQuestion}
-            className={`${buttonClass("secondary", "sm")} mt-3`}
-          >
-            Add a question
-          </button>
+          {!structured && (
+            <button
+              type="button"
+              onClick={addQuestion}
+              className={`${buttonClass("secondary", "sm")} mt-3`}
+            >
+              Add a question
+            </button>
+          )}
         </div>
 
         {state.error && (

@@ -1,6 +1,7 @@
 import type { ChatCompletionContentPart } from "openai/resources/chat/completions";
 import { READ_MODEL } from "@/lib/ai/models";
 import { callStructuredAiWithContent } from "@/lib/ai/callStructured";
+import { questionPromptLine } from "@/lib/questions/labels";
 import type { ConfidenceScore } from "@/types/assessmentBrain";
 import type {
   AnswerIndexEntry,
@@ -19,6 +20,8 @@ import type {
 export interface AssessmentQuestionForReading {
   id: string;
   questionNumber: number;
+  /** What the paper calls it ("2(a)"); null for an ordinary question. */
+  label?: string | null;
   questionText: string;
 }
 
@@ -61,7 +64,8 @@ const SYSTEM_PROMPT = [
   "8. Preserve any working and reasoning steps as plain text description of what was written, in order.",
   "9. If an answer's writing genuinely continues from one page onto another, report it as ONE entry with sourcePages listing every page it spans, in the order the content appears — never split one continuous answer into multiple entries.",
   "10. Students may answer questions out of order, or without writing the question number at all. Use the provided real question numbers and question text to infer the best match by content and context. Set mappedQuestionNumber to one of the real question numbers ONLY when you are reasonably confident; otherwise leave it null.",
-  "11. detectedQuestionNumber is whatever number/label the student actually appears to have written near that answer (which may be illegible, missing, or wrong) — record it even if it doesn't match mappedQuestionNumber. Null if nothing was written.",
+  "10a. Some questions are parts of a numbered question and are listed under the name a student writes, for example \"Question 2(a) (refer to it by the number 7)\". The student labels these as 2(a), 2 a, (a) under question 2, and so on. Always set mappedQuestionNumber to the number the list tells you to refer to it by (7 in that example), never to the question's printed label.",
+  "11. detectedQuestionNumber is the whole number the student actually appears to have written near that answer (which may be illegible, missing, or wrong) — record it even if it doesn't match mappedQuestionNumber; for a part such as 2(a) give the whole number 2. Null if nothing was written.",
   "12. If content cannot be confidently associated with any real question, still include it as an entry with mappedQuestionNumber null — never discard it and never force it onto the nearest question just to avoid leaving it unmapped.",
   "13. uncertain must be true whenever either the transcription or the mapping is genuinely in doubt. Do not mark everything uncertain by default — only genuine cases.",
   "14. Never fabricate an answer for a question you found no evidence for at all — simply do not include an entry for it.",
@@ -69,9 +73,7 @@ const SYSTEM_PROMPT = [
 ].join("\n");
 
 function buildQuestionContext(questions: AssessmentQuestionForReading[]): string {
-  return questions
-    .map((q) => `- Question ${q.questionNumber}: ${q.questionText}`)
-    .join("\n");
+  return questions.map((q) => questionPromptLine(q)).join("\n");
 }
 
 /**

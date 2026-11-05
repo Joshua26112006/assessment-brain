@@ -1,6 +1,7 @@
 import type { ChatCompletionContentPart } from "openai/resources/chat/completions";
 import { READ_MODEL } from "@/lib/ai/models";
 import { callStructuredAiWithContent } from "@/lib/ai/callStructured";
+import { questionPromptLine } from "@/lib/questions/labels";
 import { parseNumericExpression } from "@/lib/structuredCorrection/numericExpression";
 import { reconcileByKey, type ReconciledEntry } from "@/lib/structuredCorrection/reconcile";
 import {
@@ -64,6 +65,8 @@ interface SinglePassReading {
 
 export interface ReadingQuestion {
   questionNumber: number;
+  /** What the paper calls it ("2(a)"); null for an ordinary question. */
+  label?: string | null;
   questionText: string;
 }
 
@@ -77,7 +80,7 @@ function buildSystemPrompt(): string {
     "Rules, all mandatory:",
     "1. Include exactly one entry for every question number listed below, in ascending order — even the ones the student did not answer.",
     "2. attempted: false only when you find no written work for that question anywhere on the pages. When false, use an empty transcription, empty steps, empty variables and an empty studentAnswer.",
-    "3. A question's answer begins at the student's own marker for it (e.g. \"3)\", \"Q3\", \"(3)\") and ends where the next question's marker begins. An answer may continue across pages — collect all of it.",
+    "3. A question's answer begins at the student's own marker for it (e.g. \"3)\", \"Q3\", \"(3)\", \"3(b)\", or \"(b)\" under question 3) and ends where the next question's marker begins. An answer may continue across pages — collect all of it. Some questions are parts of a numbered question and are listed under the name a student writes, for example \"Question 2(a) (refer to it by the number 7)\"; always use the number the list gives, never the printed label.",
     "4. transcription: what the student actually wrote, as exactly as you can read it, including their working and any mistakes. Never fix, complete, tidy or paraphrase it. If part is illegible, transcribe what you can and leave the rest out rather than guessing.",
     "5. problemType: exactly one of \"mean\", \"median\", \"mode\", \"range\", \"probability\", \"algebra\", \"coordinate_geometry\". Use \"unknown\" whenever you are not confident — never force a guess.",
     "6. steps: the distinct logical steps the student actually wrote, in their order (e.g. \"stated the mode formula\", \"substituted values\", \"simplified\"). Do not invent steps they did not write, and do not omit steps they did.",
@@ -88,7 +91,7 @@ function buildSystemPrompt(): string {
 }
 
 function buildQuestionList(questions: ReadingQuestion[]): string {
-  return questions.map((q) => `- Question ${q.questionNumber}: ${q.questionText}`).join("\n");
+  return questions.map((q) => questionPromptLine(q)).join("\n");
 }
 
 function toTrimmed(value: unknown, maxLength: number): string {

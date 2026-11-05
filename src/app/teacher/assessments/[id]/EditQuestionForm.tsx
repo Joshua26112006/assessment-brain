@@ -26,6 +26,7 @@ export default function EditQuestionForm({
   const numberId = `question-number-${question.id}`;
   const marksId = `question-marks-${question.id}`;
   const textId = `question-text-${question.id}`;
+  const typeId = `question-type-${question.id}`;
 
   return (
     <form action={formAction} className="mt-3 flex flex-col gap-3">
@@ -72,6 +73,25 @@ export default function EditQuestionForm({
             defaultValue={question.maximumMarks}
             className={`${inputClass} mt-1`}
           />
+        </div>
+        <div className="w-56">
+          <label htmlFor={typeId} className="block text-xs font-medium text-muted">
+            How it is marked
+          </label>
+          <select
+            id={typeId}
+            name="answerType"
+            defaultValue={question.answerType ?? ""}
+            className={`${inputClass} mt-1`}
+          >
+            <option value="">Work it out from the scheme</option>
+            <option value="NUMERIC">A calculation</option>
+            <option value="EXACT_KEY">One exact answer (option, word, name)</option>
+            <option value="SHORT_TEXT">A short answer</option>
+            <option value="DESCRIPTIVE">An explanation</option>
+            <option value="ESSAY">A long answer or essay</option>
+            <option value="DIAGRAM">A diagram (you mark it)</option>
+          </select>
         </div>
         <button type="submit" disabled={isPending} className={buttonClass("primary", "sm")}>
           {isPending ? "Saving…" : "Save"}

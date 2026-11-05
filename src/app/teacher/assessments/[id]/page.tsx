@@ -30,6 +30,8 @@ export default async function AssessmentDetailPage({
   const questions = assessment.questions.map((q) => ({
     id: q.id,
     questionNumber: q.questionNumber,
+    label: q.label,
+    answerType: q.answerType,
     questionText: q.questionText,
     maximumMarks: Number(q.maximumMarks),
     rubric: q.rubric
