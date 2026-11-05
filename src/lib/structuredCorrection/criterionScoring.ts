@@ -138,7 +138,7 @@ function buildPrompts(input: CriterionScoringInput, decided: Decided, run: numbe
     "",
     "Rules, all mandatory:",
     "1. Answer EVERY criterion listed, once each, using its id. Decide each criterion on its own text — never from an overall impression of the answer, and never to reach a particular total. You do not give a mark total.",
-    '2. "yes" only when the criterion\'s requirement is actually present in the answer; "no" when it is absent or wrong; "partial" only for a criterion worth 1 mark or more that is clearly half met.',
+    '2. "yes" only when the criterion\'s requirement is actually present in the answer; "no" when it is absent or wrong. "partial" is allowed ONLY for a criterion worth 2 marks or more that is clearly half met; a criterion worth less than 2 marks is a plain yes or no, never partial.',
     "3. evidence: an EXACT short quote, copied character for character from the student's answer, that supports a yes or partial. Use \"\" for a no.",
     "4. usesEarlierError: true ONLY when the student earns this criterion by correctly using a value or result carried forward from an earlier step they got wrong. Otherwise false.",
     "5. Do not be stricter or more lenient than the criterion's own wording. Equivalent correct forms of a value or expression earn the criterion.",

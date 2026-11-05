@@ -45,6 +45,7 @@ interface AnswerRun {
   awarded: number | null;
   flagged: boolean;
   findings: number;
+  reasons: string[];
 }
 
 const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
@@ -107,8 +108,11 @@ async function main() {
             const key = `${script.id}#${q.n}`;
             const list = runs.get(key) ?? [];
             const reading = readings.get(q.n);
-            if ("error" in rubric || !reading) {
-              list.push({ awarded: null, flagged: true, findings: 0 });
+            if ("error" in rubric) {
+              list.push({ awarded: null, flagged: true, findings: 0, reasons: ["no rubric could be drafted"] });
+            } else if (!reading) {
+              // Nothing was read for this question: in the real flow it has no answer row, is recorded as "not answered" and is not flagged.
+              list.push({ awarded: 0, flagged: false, findings: 0, reasons: [] });
             } else {
               const c = await correctStructuredQuestion({
                 questionId: `q${q.n}`, questionNumber: q.n, questionText: q.text, maximumMarks: q.marks, subject: paper.subject,
@@ -120,6 +124,7 @@ async function main() {
                 awarded: c?.score?.awardedMarks ?? null,
                 flagged: !c?.score || c.score.marking?.unsure === true,
                 findings: c?.explanations.length ?? 0,
+                reasons: c?.score?.marking?.reasons ?? (c?.score ? [] : ["marking failed"]),
               });
             }
             runs.set(key, list);
@@ -153,6 +158,8 @@ async function main() {
         }
       }
     }
+    const reasonCounts: Record<string, number> = {};
+    for (const list of runs.values()) for (const r of list) for (const reason of r.reasons) reasonCounts[reason] = (reasonCounts[reason] ?? 0) + 1;
     const perScriptSeconds = scriptSeconds / Math.max(1, paper.scripts.length * repeats);
     const perScriptCost = (cost - costBefore) / Math.max(1, paper.scripts.length * repeats);
     const row = {
@@ -160,6 +167,7 @@ async function main() {
       agreementExact: pct(exact, withTeachers), agreementWithinOne: pct(withinOne, withTeachers),
       falseFindingsOnCorrectAnswers: pct(falseFindings, correctAnswers), flagRate: pct(flagged, answers),
       repeatStability: repeats > 1 ? pct(stable, answers) : "n/a (one repeat)",
+      flagReasons: reasonCounts,
       secondsPerScript: Math.round(perScriptSeconds), costUsdPerScript: Number(perScriptCost.toFixed(4)),
     };
     report.push(row);
