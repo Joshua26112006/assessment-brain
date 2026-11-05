@@ -10,6 +10,7 @@ import RubricViewer, { type RubricViewerApproach, type RubricViewerCheckpoint } 
 import RetryRubricButton from "./RetryRubricButton";
 import SchemeApproval, { type SchemeCriterionView } from "./SchemeApproval";
 import { FIGURE_REFERENCE_NOTE, referencesFigure } from "@/lib/questions/figureReference";
+import QuestionFigures, { type FigureItem } from "./QuestionFigures";
 
 export type QuestionCardData = {
   id: string;
@@ -59,7 +60,8 @@ function toEditorCheckpoints(checkpoints: RubricViewerCheckpoint[]): { descripti
   return checkpoints.map((c) => ({ description: c.description, marks: c.marks }));
 }
 
-export default function QuestionCard({ question }: { question: QuestionCardData }) {
+export default function QuestionCard({ question, assessmentId, figures }: { question: QuestionCardData; assessmentId: string; figures: FigureItem[] }) {
+  const hasPrintedFigure = figures.some((figure) => figure.role === "QUESTION_FIGURE");
   const [isEditing, setIsEditing] = useState(false);
   const [isRubricOpen, setIsRubricOpen] = useState(false);
   const [isManualEditOpen, setIsManualEditOpen] = useState(false);
@@ -111,6 +113,14 @@ export default function QuestionCard({ question }: { question: QuestionCardData 
         )}
       </div>
 
+      <QuestionFigures
+        assessmentId={assessmentId}
+        questionId={question.id}
+        figures={figures}
+        mentionsFigure={referencesFigure(question.questionText)}
+        isDiagramQuestion={question.answerType === "DIAGRAM"}
+      />
+
       <div className="border-t border-line px-5 py-3">
         {generationStatus === "READY" && activeVersion ? (
           <>
@@ -125,7 +135,7 @@ export default function QuestionCard({ question }: { question: QuestionCardData 
               ) : (
                 <StatusBadge label="Needs your approval" tone="warning" size="sm" />
               )}
-              {referencesFigure(question.questionText) && <StatusBadge label="Mentions a figure" tone="warning" size="sm" />}
+              {referencesFigure(question.questionText) && !hasPrintedFigure && <StatusBadge label="Mentions a figure" tone="warning" size="sm" />}
               <span className="text-xs text-muted">
                 {activeVersion.solutionApproaches.length} approach
                 {activeVersion.solutionApproaches.length === 1 ? "" : "es"} ·{" "}
@@ -140,7 +150,7 @@ export default function QuestionCard({ question }: { question: QuestionCardData 
 
             {isRubricOpen && (
               <>
-                {referencesFigure(question.questionText) && (
+                {referencesFigure(question.questionText) && !hasPrintedFigure && (
                   <p role="note" className="mt-3 rounded-lg border border-warning-line bg-warning-soft p-3 text-xs text-warning">
                     {FIGURE_REFERENCE_NOTE}
                   </p>

@@ -1,5 +1,6 @@
 import { JUDGE_MODEL } from "@/lib/ai/models";
-import { callStructuredAi } from "@/lib/ai/callStructured";
+import { callStructuredAi, callStructuredAiWithContent } from "@/lib/ai/callStructured";
+import { figureContentParts, figureInstructions, type FigurePicture } from "@/lib/figures/figureContent";
 import { criteriaWithFallback } from "./criteriaDraft";
 import { validateCriteria } from "@/lib/scheme/criteria";
 import {
@@ -21,6 +22,8 @@ export interface RubricGenerationInput {
   grade: string;
   curriculum: string;
   assessmentTitle: string;
+  /** The figures printed with the question and the teacher's model diagram, if any. The model is shown them. */
+  figures?: FigurePicture[];
 }
 
 const MAX_EXPECTED_ANSWER_LENGTH = 2000;
@@ -71,7 +74,8 @@ export async function generateRubricWithAi(input: RubricGenerationInput): Promis
   // paper is mathematics, but no subject-name test recognised it as such. The
   // rubric is the reliable judge of whether a question has one definite
   // checkable answer, so it decides; an essay simply reports solvable: false.
-  const systemPrompt = `${SYSTEM_PROMPT}\n${buildStructuredExpectationInstructions()}`;
+  const figures = input.figures ?? [];
+  const systemPrompt = `${SYSTEM_PROMPT}\n${buildStructuredExpectationInstructions()}${figureInstructions(figures)}`;
 
   const userPrompt = [
     `Subject: ${input.subject}`,
@@ -83,14 +87,25 @@ export async function generateRubricWithAi(input: RubricGenerationInput): Promis
     input.questionText,
   ].join("\n");
 
-  const raw = await callStructuredAi<RawRubricDraft>({
-    model: JUDGE_MODEL,
-    systemPrompt,
-    userPrompt,
-    temperature: 0.2,
-    maxAttempts: 2,
-    stage: "RUBRIC_GENERATION",
-  });
+  // With pictures attached the request carries them; with none it is exactly the plain text request it always was.
+  const raw =
+    figures.length > 0
+      ? await callStructuredAiWithContent<RawRubricDraft>({
+          model: JUDGE_MODEL,
+          systemPrompt,
+          userContent: [{ type: "text", text: userPrompt }, ...(await figureContentParts(figures))],
+          temperature: 0.2,
+          maxAttempts: 2,
+          stage: "RUBRIC_GENERATION",
+        })
+      : await callStructuredAi<RawRubricDraft>({
+          model: JUDGE_MODEL,
+          systemPrompt,
+          userPrompt,
+          temperature: 0.2,
+          maxAttempts: 2,
+          stage: "RUBRIC_GENERATION",
+        });
 
   const draft = validate(raw, input.maximumMarks);
   const structuredExpectation = parseStructuredExpectation(raw.structuredExpectation);

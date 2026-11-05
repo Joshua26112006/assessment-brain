@@ -1,5 +1,6 @@
 import { JUDGE_MODEL } from "@/lib/ai/models";
-import { callStructuredAi } from "@/lib/ai/callStructured";
+import { callStructuredAi, callStructuredAiWithContent } from "@/lib/ai/callStructured";
+import { figureContentParts, figureInstructions, type FigurePicture } from "@/lib/figures/figureContent";
 import type {
   QuestionValidationIssueType,
   QuestionValidationResult,
@@ -15,6 +16,8 @@ export interface QuestionValidationInput {
   grade: string;
   curriculum: string;
   assessmentTitle: string;
+  /** The figures printed with the question and the teacher's model diagram, if any. A reference to one is not missing when attached. */
+  figures?: FigurePicture[];
 }
 
 const VALID_ISSUE_TYPES: readonly QuestionValidationIssueType[] = [
@@ -70,14 +73,26 @@ export async function validateQuestionForRubricGeneration(
     input.questionText,
   ].join("\n");
 
-  const raw = await callStructuredAi<RawQuestionValidationResult>({
-    model: JUDGE_MODEL,
-    systemPrompt: SYSTEM_PROMPT,
-    userPrompt,
-    temperature: 0.1,
-    maxAttempts: 2,
-    stage: "RUBRIC_GENERATION_VALIDATION",
-  });
+  const figures = input.figures ?? [];
+  const systemPrompt = `${SYSTEM_PROMPT}${figureInstructions(figures)}`;
+  const raw =
+    figures.length > 0
+      ? await callStructuredAiWithContent<RawQuestionValidationResult>({
+          model: JUDGE_MODEL,
+          systemPrompt,
+          userContent: [{ type: "text", text: userPrompt }, ...(await figureContentParts(figures))],
+          temperature: 0.1,
+          maxAttempts: 2,
+          stage: "RUBRIC_GENERATION_VALIDATION",
+        })
+      : await callStructuredAi<RawQuestionValidationResult>({
+          model: JUDGE_MODEL,
+          systemPrompt,
+          userPrompt,
+          temperature: 0.1,
+          maxAttempts: 2,
+          stage: "RUBRIC_GENERATION_VALIDATION",
+        });
 
   return validate(raw);
 }

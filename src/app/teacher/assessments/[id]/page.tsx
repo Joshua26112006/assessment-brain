@@ -10,6 +10,10 @@ import AddQuestionForm from "./AddQuestionForm";
 import QuestionCard from "./QuestionCard";
 import DeleteAllQuestionsButton from "./DeleteAllQuestionsButton";
 import QuestionPaperSection from "./QuestionPaperSection";
+import { FigureTray } from "./QuestionFigures";
+import { listFigures } from "@/lib/figures/figureStore";
+import { prisma } from "@/lib/prisma";
+import { labelOf } from "@/lib/questions/labels";
 import RubricGenerationWatcher from "./RubricGenerationWatcher";
 import AssessmentReadinessPanel from "./AssessmentReadinessPanel";
 import { parseRubricApproaches, parseRubricCheckpoints } from "./RubricViewer";
@@ -70,6 +74,15 @@ export default async function AssessmentDetailPage({
   }));
 
   const badge = assessmentBadge(assessment.status);
+
+  // The figures found in the paper and any the teacher added, by question. A figure that follows no question is shown in
+  // the tray under the question paper, to be placed. "Find again" is offered when the approved paper is a digital PDF.
+  const figures = await listFigures(assessment.id, session.user.id);
+  const approvedPaper = await prisma.questionPaper.findFirst({
+    where: { assessmentId: assessment.id, extractionStatus: "APPROVED" },
+    select: { pages: { select: { mimeType: true } } },
+  });
+  const canDetectFigures = Boolean(approvedPaper?.pages.some((page) => page.mimeType === "application/pdf"));
 
   // The single source of truth for "is this assessment ready to publish" —
   // the exact same functions publishAssessment uses server-side (Phase
@@ -188,6 +201,14 @@ export default async function AssessmentDetailPage({
       )}
 
       <QuestionPaperSection assessmentId={assessment.id} hasQuestions={questions.length > 0} />
+      {questions.length > 0 && (
+        <FigureTray
+          assessmentId={assessment.id}
+          unplaced={figures.filter((figure) => figure.questionId === null)}
+          questions={questions.map((q) => ({ id: q.id, label: labelOf(q) }))}
+          canDetect={canDetectFigures}
+        />
+      )}
 
       <Section
         id="questions-and-rubrics"
@@ -207,7 +228,7 @@ export default async function AssessmentDetailPage({
         ) : (
           <div className="flex flex-col gap-3">
             {questions.map((question) => (
-              <QuestionCard key={question.id} question={question} />
+              <QuestionCard key={question.id} question={question} assessmentId={assessment.id} figures={figures.filter((figure) => figure.questionId === question.id)} />
             ))}
           </div>
         )}

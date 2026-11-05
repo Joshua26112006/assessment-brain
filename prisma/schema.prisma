@@ -147,6 +147,7 @@ model Assessment {
   submissions    Submission[]
   reviewItems    ReviewItem[]
   questionPapers QuestionPaper[]
+  figures        QuestionFigure[]
 
   @@index([status])
   @@index([classId])
@@ -276,6 +277,7 @@ model Question {
   rubric      Rubric?
   responses   QuestionResponse[]
   reviewItems ReviewItem[]
+  figures     QuestionFigure[]
 
   @@unique([assessmentId, questionNumber])
 }
@@ -992,4 +994,52 @@ model AiCallLog {
   @@index([stage])
   @@index([model])
   @@index([createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// QuestionFigure: the figures of a question paper, and a teacher's model diagrams
+// ---------------------------------------------------------------------------
+
+enum QuestionFigureRole {
+  /// A figure, graph or table printed in the question paper.
+  QUESTION_FIGURE
+  /// A correct diagram the teacher supplies for a question where the student draws.
+  MODEL_DIAGRAM
+}
+
+enum QuestionFigureSource {
+  /// Cropped from a digital question-paper PDF by the figure finder.
+  PDF_DETECTED
+  /// Uploaded by the teacher.
+  TEACHER_UPLOAD
+}
+
+/// One picture tied to a question. A detected figure that follows no question number has questionId null,
+/// for the teacher to place. The picture itself is a file under storage/question-figures/.
+model QuestionFigure {
+  id           String     @id @default(cuid())
+  assessmentId String
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  questionId   String?
+  question     Question?  @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  role   QuestionFigureRole   @default(QUESTION_FIGURE)
+  source QuestionFigureSource
+
+  /// Where it was found, as 0 to 1 fractions of its page. Null for an upload.
+  pageNumber Int?
+  boxLeft    Float?
+  boxTop     Float?
+  boxWidth   Float?
+  boxHeight  Float?
+
+  storageKey String @unique
+  mimeType   String
+  widthPx    Int
+  heightPx   Int
+
+  createdAt DateTime @default(now())
+
+  @@index([assessmentId])
+  @@index([questionId])
 }

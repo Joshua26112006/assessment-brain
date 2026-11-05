@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { generateRubricWithAi } from "./ai";
 import { validateQuestionForRubricGeneration } from "./questionValidation";
+import { figuresForQuestion } from "@/lib/figures/figureStore";
 
 /**
  * Runs (or re-runs) automatic AI rubric generation for one Question and
@@ -66,7 +67,12 @@ export async function generateRubricForQuestion(questionId: string): Promise<voi
       throw new Error("This question no longer exists.");
     }
 
+    // What the question shows: its figures from the paper and any model diagram. The model is given them, so a question
+    // that refers to a figure is no longer drafted from words alone.
+    const figures = await figuresForQuestion(questionId);
+
     const validation = await validateQuestionForRubricGeneration({
+      figures,
       questionNumber: question.questionNumber,
       questionText: question.questionText,
       maximumMarks: Number(question.maximumMarks),
@@ -91,6 +97,7 @@ export async function generateRubricForQuestion(questionId: string): Promise<voi
     }
 
     const draft = await generateRubricWithAi({
+      figures,
       questionText: question.questionText,
       maximumMarks: Number(question.maximumMarks),
       subject: question.assessment.subject,

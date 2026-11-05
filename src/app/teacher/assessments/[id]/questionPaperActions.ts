@@ -8,6 +8,7 @@ import { requireTeacherSession } from "@/lib/require-teacher";
 import { findCurrentQuestionPaperForTeacher } from "@/lib/questionPaperAccess";
 import { runQuestionPaperExtraction } from "@/lib/questionPaperExtraction";
 import { resolveStructure, treeForQuestions } from "@/lib/questionPaperExtraction/approvalStructure";
+import { detectAndStorePaperFigures } from "@/lib/figures/figureStore";
 
 export type QuestionPaperActionState = { error?: string; success?: boolean };
 
@@ -258,6 +259,16 @@ export async function approveExtraction(
     }
     throw error;
   }
+
+  // Find the paper's figures, graphs and tables once its questions exist. Never part of the approval itself: if the PDF
+  // cannot be read, the questions stand and the teacher can upload a figure or look again from the assessment page.
+  after(async () => {
+    try {
+      await detectAndStorePaperFigures(assessmentId);
+    } catch (error) {
+      console.error("Finding the question paper's figures failed:", error instanceof Error ? error.message : error);
+    }
+  });
 
   revalidatePath(`/teacher/assessments/${assessmentId}`);
   return { success: true };
