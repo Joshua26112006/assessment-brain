@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireTeacherSession } from "@/lib/require-teacher";
 import { getOwnedAssessmentOrNotFound } from "@/lib/assessment-ownership";
 import { ACTIONABLE_REVIEW_STATUSES } from "@/lib/review-scope";
+import { loadCalibration } from "@/lib/assessment/calibration";
 import {
   describeEvaluationProgress,
   summarizeSubmissionScore,
@@ -44,6 +45,9 @@ export default async function AssessmentSubmissionsPage({
   const { id } = await params;
   const session = await requireTeacherSession();
   const assessment = await getOwnedAssessmentOrNotFound(id, session.user.id);
+
+  // How well the AI's marks match this teacher's, question by question, from the answers they have reviewed.
+  const calibration = await loadCalibration(assessment.id);
 
   const [submissions, openReviewItems] = await Promise.all([
     prisma.submission.findMany({
@@ -114,6 +118,26 @@ export default async function AssessmentSubmissionsPage({
           href={needingReview > 0 ? "/teacher/review-queue" : undefined}
         />
       </div>
+
+      {calibration.length > 0 && (
+        <section className="mt-6 rounded-xl border border-line bg-surface p-5">
+          <h2 className="text-sm font-semibold">How well the AI agrees with your marking</h2>
+          <p className="mt-1 text-xs text-muted">
+            From the answers you have accepted or changed. If the AI is often far from your marks on a question, adjust
+            that question&apos;s marking scheme, or mark it yourself.
+          </p>
+          <ul className="mt-3 flex flex-col divide-y divide-line text-sm">
+            {calibration.map((item) => (
+              <li key={item.questionId} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 py-2">
+                <span className="w-24 shrink-0 font-medium">Question {item.label}</span>
+                <span className="min-w-0 flex-1 text-muted">{item.verdict.message}</span>
+                {item.verdict.status === "BELOW_BAR" && <StatusBadge label="Below the line" tone="warning" size="sm" />}
+                {item.verdict.status === "AGREES" && <StatusBadge label="Agrees" tone="success" size="sm" />}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {submissions.length === 0 ? (
         <div className="mt-8">

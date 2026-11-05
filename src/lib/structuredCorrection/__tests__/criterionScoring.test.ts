@@ -4,7 +4,7 @@ vi.mock("@/lib/ai/callStructured", () => ({ callStructuredAi: vi.fn() }));
 
 import { callStructuredAi } from "@/lib/ai/callStructured";
 import { decideWithoutModel, hasWorking, scoreByCriteria, type CriterionScoringInput } from "@/lib/structuredCorrection/criterionScoring";
-import { parseNumericExpression } from "@/lib/structuredCorrection/numericExpression";
+import { parseNumericExpression, parseNumericSet } from "@/lib/structuredCorrection/numericExpression";
 import { splitQuantity } from "@/lib/structuredCorrection/units";
 import { DEFAULT_FOLLOW_THROUGH, DEFAULT_NO_WORKING_RULE, type Scheme, type SchemeCriterion } from "@/lib/scheme/criteria";
 import type { ExtractedValue, ReconciledReading, StructuredExpectation } from "@/types/structuredCorrection";
@@ -252,11 +252,12 @@ describe("scoreByCriteria", () => {
     expect(refused.awardedMarks).toBe(3);
   });
 
-  it("survives one failed run: uses the other two, and says so", async () => {
+  it("survives one failed run (both its attempts fail): uses the other two, and says so", async () => {
     let calls = 0;
     model.mockImplementation(async () => {
       calls++;
-      if (calls === 2) throw new Error("provider hiccup");
+      // The three runs start together (calls 1, 2, 3); run two's second attempt is call 4.
+      if (calls === 2 || calls === 4) throw new Error("provider hiccup");
       return allYes(["c1", "c2"]);
     });
     const score = await scoreByCriteria(input());
@@ -281,5 +282,55 @@ describe("scoreByCriteria", () => {
     model.mockResolvedValue(allYes(["c1", "c2", "c3", "c4", "c99"]));
     const score = await scoreByCriteria(input());
     expect(score.awardedMarks).toBeLessThanOrEqual(4);
+  });
+});
+
+describe("an answer with several values (Phase 7)", () => {
+  const setValue = (raw: string): ExtractedValue => ({ raw, parsed: null, parsedSet: parseNumericSet(raw) ?? undefined });
+  const keyed = (raw: string): StructuredExpectation => ({ solvable: true, problemType: "unknown", correctAnswer: setValue(raw), approaches: [] });
+  const written = (raw: string) =>
+    reading({ studentAnswer: setValue(raw), secondPass: { variables: {}, studentAnswer: setValue(raw) }, transcription: raw });
+
+  it("a student who wrote the whole set is correct, however it is written or ordered", () => {
+    const base = input({ structuredExpectation: keyed("x = 2 or x = -3") });
+    expect(decideWithoutModel({ ...base, reading: written("x = -3 or x = 2") }).finalAnswerCorrect).toBe(true);
+    expect(decideWithoutModel({ ...base, reading: written("2 or -3") }).finalAnswerCorrect).toBe(true);
+  });
+
+  it("a student who wrote a different set is wrong", () => {
+    const base = input({ structuredExpectation: keyed("x = 2 or x = -3") });
+    expect(decideWithoutModel({ ...base, reading: written("x = 2 or x = 3") }).finalAnswerCorrect).toBe(false);
+  });
+
+  it("one value of the two is neither right nor wrong for code: a person decides", () => {
+    const base = input({ structuredExpectation: keyed("x = 2 or x = -3") });
+    const oneRoot = reading({ studentAnswer: { raw: "x = 2", parsed: 2 }, secondPass: { variables: {}, studentAnswer: { raw: "x = 2", parsed: 2 } } });
+    expect(decideWithoutModel({ ...base, reading: oneRoot }).finalAnswerCorrect).toBeNull();
+  });
+
+  it("is not decided when the two reading passes disagree about the set", () => {
+    const base = input({ structuredExpectation: keyed("±2") });
+    const split = reading({ studentAnswer: setValue("±2"), secondPass: { variables: {}, studentAnswer: setValue("±3") }, transcription: "±2" });
+    expect(decideWithoutModel({ ...base, reading: split }).finalAnswerCorrect).toBeNull();
+  });
+});
+
+describe("a malformed reply is retried within the run", () => {
+  it("one reply that is not valid JSON does not cost the run: it is asked again", async () => {
+    let calls = 0;
+    model.mockImplementation(async () => {
+      calls++;
+      if (calls === 1) throw new Error("Could not extract valid JSON from the AI response.");
+      return allYes(["c1", "c2"]);
+    });
+    const score = await scoreByCriteria(input());
+    // three runs; the first run's first attempt failed and its second succeeded, so all three runs completed.
+    expect(score.marking?.runTotals).toHaveLength(3);
+    expect(score.marking?.reasons.join(" ")).not.toMatch(/Only \d of 3/);
+  });
+
+  it("a run whose replies are all malformed fails, saying why", async () => {
+    model.mockRejectedValue(new Error("Could not extract valid JSON from the AI response."));
+    await expect(scoreByCriteria(input())).rejects.toThrow(/did not return a usable mark/);
   });
 });

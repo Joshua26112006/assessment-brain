@@ -52,17 +52,50 @@ function closeEnough(a: number, b: number): boolean {
   return Math.abs(a - b) <= Math.max(0.01, Math.abs(b) * 0.005);
 }
 
-export function parseNumericExpression(raw: string): number | null {
+/**
+ * Forms that change what a written value MEANS, so they are read only when asked for. A percentage is a
+ * fraction of a hundred (50% is 0.5), but a question that does not accept one would read "50%" as 50 or as
+ * an error either way; a comma is a decimal point in some countries and a thousands separator in others.
+ * Neither is guessed: left off, such a value is "cannot be read" and a person decides.
+ */
+export interface ParseOptions {
+  /** Read "50%" as 0.5. */
+  acceptPercent?: boolean;
+  /** Read "2,5" as 2.5 (and so a comma is never a thousands separator). */
+  decimalComma?: boolean;
+}
+
+/** Characters a value may contain once it has been normalised: digits, operators, brackets, space, π and √. */
+const ARITHMETIC_GATE = /^[\d+\-*/^().\sπ√]+$/;
+
+export function parseNumericExpression(raw: string, options: ParseOptions = {}): number | null {
   if (!raw) return null;
 
   let normalized = foldSuperscripts(raw)
     // A typeset minus sign (U+2212) means exactly "-".
     .replace(/−/g, "-")
-    // Thousands separators, Western ("1,000") and Indian ("1,00,000") grouping
-    // only. A comma not followed by such a group ("2,5", "2, 5") is left alone
-    // and the value stays unparseable — it may be a decimal comma or a list.
-    .replace(/(?<=\d),(?=(?:\d{2},)*\d{3}(?!\d))/g, "")
     .trim();
+
+  // A decimal comma is read only when the question says to; otherwise it may be a list or a thousands
+  // separator, and the value stays unparseable unless it is a well-formed thousands group.
+  normalized = options.decimalComma
+    ? normalized.replace(/(?<=\d),(?=\d)/g, ".")
+    : // Thousands separators, Western ("1,000") and Indian ("1,00,000") grouping only. A comma not followed
+      // by such a group ("2,5", "2, 5") is left alone and the value stays unparseable.
+      normalized.replace(/(?<=\d),(?=(?:\d{2},)*\d{3}(?!\d))/g, "");
+
+  // Written-out forms of two symbols: "sqrt(2)" and "pi". Only whole words, so a sentence is not rewritten.
+  normalized = normalized.replace(/\bsqrt\b/gi, "√").replace(/\bpi\b/gi, "π");
+  // A trailing ellipsis on a decimal ("0.333...", "0.33…") says "and so on"; the digits written are the value.
+  normalized = normalized.replace(/(?<=\d)\s*(?:\.{3}|…)$/, "");
+  // A percentage, only when the question accepts one.
+  if (options.acceptPercent) {
+    const percent = normalized.match(/^(.*[\d)])\s*%$/);
+    if (percent) {
+      const inner = parseNumericExpression(percent[1], { ...options, acceptPercent: false });
+      return inner === null ? null : inner / 100;
+    }
+  }
 
   // "Ans: 4", "∴ x = 4" — strip any answer-introducing words first.
   let previous;
@@ -81,11 +114,11 @@ export function parseNumericExpression(raw: string): number | null {
     const first = segments[0];
     if (first && !ANSWER_NAME.test(first)) return null;
     const last = segments[segments.length - 1];
-    const value = last ? parseNumericExpression(last) : null;
+    const value = last ? parseNumericExpression(last, options) : null;
     if (value === null) return null;
     for (const middle of segments.slice(1, -1)) {
       if (!middle) return null;
-      const middleValue = parseNumericExpression(middle);
+      const middleValue = parseNumericExpression(middle, options);
       if (middleValue !== null && !closeEnough(middleValue, value)) return null;
     }
     return value;
@@ -106,21 +139,36 @@ export function parseNumericExpression(raw: string): number | null {
   // only when a clean arithmetic core is left behind — a value that is
   // non-numeric throughout still falls through to the gate below and returns
   // null.
-  const trailingQualifier = normalized.match(/^(.*?)\s*[a-zA-Z][a-zA-Z()\s.]*$/);
+  //
+  // What may be stripped is limited, because stripping used to turn "4x" into 4 and "2e" into 2 — an
+  // algebraic term read as a number. A qualifier written AFTER A SPACE may be a unit ("2 m", "5 g") or a
+  // word of two or more letters ("7 days", "36.67 marks"); letters GLUED to the number are stripped only
+  // when they are a recognised unit ("120J", "5g"). A lone letter that is not a unit ("4x") is left, and the
+  // value is then not a number.
+  const trailingQualifier = normalized.match(/^(.*?)(\s*)([a-zA-Z][a-zA-Z()\s.]*)$/);
   if (trailingQualifier?.[1]) {
-    const core = trailingQualifier[1].trim();
-    if (core && /^[\d+\-*/^().\s]+$/.test(core)) normalized = core;
+    const [, coreText, gap, tail] = trailingQualifier;
+    const core = coreText.trim();
+    const tailText = tail.trim();
+    const isUnit = UNIT_PATTERN.test(tailText);
+    const isWord = gap.length > 0 && tailText.replace(/[^a-zA-Z]/g, "").length >= 2;
+    if (core && ARITHMETIC_GATE.test(core) && (isUnit || isWord)) normalized = core;
   }
 
   // Compound units ("4 m/s^2", "10 Ω", "9.8 m/s²", "37 °C") — see stripCompoundUnit.
   // Tried only when the value is still not clean arithmetic, so everything that
   // already parsed above parses exactly as before.
-  if (normalized && !/^[\d+\-*/^().\s]+$/.test(normalized)) {
+  if (normalized && !ARITHMETIC_GATE.test(normalized)) {
     const withoutUnit = stripCompoundUnit(normalized);
     if (withoutUnit) normalized = withoutUnit;
   }
 
-  if (!normalized || !/^[\d+\-*/^().\s]+$/.test(normalized)) return null;
+  // A mixed number ("2 1/2" is two and a half; "10 1/4 m" with its unit already removed). Only when the WHOLE
+  // value is that form, so "2 1/2 + 1" is not read as one.
+  const mixed = normalized.match(/^(\d+)\s+(\d+)\s*\/\s*(\d+)$/);
+  if (mixed && Number(mixed[3]) !== 0) normalized = `(${mixed[1]}+${mixed[2]}/${mixed[3]})`;
+
+  if (!normalized || !ARITHMETIC_GATE.test(normalized)) return null;
 
   try {
     const { value, end } = parseExpr(normalized, 0);
@@ -144,7 +192,7 @@ const UNIT_EXPONENT = "(?:\\^\\s*[-−+]?\\d+|[⁰¹²³⁴⁵⁶⁷⁸⁹⁻]+)
 const UNIT_FACTOR = `${UNIT_TOKEN}${UNIT_EXPONENT}?`;
 const UNIT_PATTERN = new RegExp(`^${UNIT_FACTOR}(?:(?:\\s*[/·⋅*.]\\s*|\\s+)${UNIT_FACTOR})*$`);
 /** A number followed by something that starts like a unit. The core must end in a digit or ")". */
-const NUMBER_THEN_UNIT = /^([\d+\-*/^().\s]*[\d)])\s*([^\d+\-*/^().\s(].*)$/;
+const NUMBER_THEN_UNIT = /^([\d+\-*/^().\sπ√]*[\d)π])\s*([^\d+\-*/^().\sπ√(].*)$/;
 /** Only units containing one of these need this path; plain words ("J", "ohm", "g") are handled by the qualifier strip. */
 const COMPOUND_UNIT_MARKER = /[/^·⋅⁰¹²³⁴⁵⁶⁷⁸⁹⁻ΩµμK°]/;
 
@@ -163,7 +211,7 @@ function stripCompoundUnit(value: string): string | null {
   // Unit parentheses ("J/(kg K)") are grouping only; drop them before validating.
   const unit = match[2].replace(/[()]/g, "").trim();
   if (!core || !unit || !COMPOUND_UNIT_MARKER.test(unit)) return null;
-  if (!/^[\d+\-*/^().\s]+$/.test(core)) return null;
+  if (!ARITHMETIC_GATE.test(core)) return null;
 
   return UNIT_PATTERN.test(unit) ? core : null;
 }
@@ -196,9 +244,11 @@ function parseTerm(source: string, index: number): { value: number; end: number 
   let value = first.value;
   i = skipWhitespace(source, first.end);
 
-  while (source[i] === "*" || source[i] === "/") {
-    const operator = source[i];
-    const right = parseFactor(source, i + 1);
+  // "2π" and "4√3" mean 2 × π and 4 × √3: a symbol straight after a value multiplies it.
+  while (source[i] === "*" || source[i] === "/" || source[i] === "π" || source[i] === "√") {
+    const implicit = source[i] === "π" || source[i] === "√";
+    const operator = implicit ? "*" : source[i];
+    const right = parseFactor(source, implicit ? i : i + 1);
     if (operator === "/") {
       if (right.value === 0) throw new Error("Division by zero.");
       value = value / right.value;
@@ -245,8 +295,50 @@ function parsePrimary(source: string, index: number): { value: number; end: numb
     return { value: inner.value, end: closing + 1 };
   }
 
+  // π, and √ of a number or of a bracketed expression ("√2", "√(2+3)").
+  if (source[i] === "π") return { value: Math.PI, end: i + 1 };
+  if (source[i] === "√") {
+    const operand = parsePrimary(source, i + 1);
+    if (operand.value < 0) throw new Error("Square root of a negative number.");
+    return { value: Math.sqrt(operand.value), end: operand.end };
+  }
+
   let end = i;
   while (end < source.length && /[\d.]/.test(source[end])) end++;
   if (end === i) throw new Error("Expected a number.");
   return { value: parseFloat(source.slice(i, end)), end };
+}
+
+/**
+ * An answer with more than one value: "x = 2 or x = -3", "2 or -3", "x = ±2". Returns the values, ascending
+ * and without repeats, or null when the text is not such an answer (a single value is not a set). A comma is
+ * deliberately not a separator: "2,5" may be a decimal and "1,000" a thousand.
+ */
+export function parseNumericSet(raw: string, options: ParseOptions = {}): number[] | null {
+  if (!raw) return null;
+  let text = raw.replace(/−/g, "-").trim();
+  let previous;
+  do {
+    previous = text;
+    text = text.replace(ANSWER_PREFIX, "");
+  } while (text !== previous);
+
+  let values: number[] | null = null;
+
+  const plusMinus = text.match(/^(?:[A-Za-zα-ωΑ-Ω][A-Za-z0-9_₀-₉']*\s*=\s*)?±\s*(.+)$/);
+  if (plusMinus) {
+    const value = parseNumericExpression(plusMinus[1], options);
+    if (value !== null) values = value === 0 ? [0] : [value, -value];
+  } else {
+    const parts = text.split(/\s*(?:\bor\b|\band\b|&|;)\s*/i).filter((part) => part.length > 0);
+    if (parts.length >= 2) {
+      const parsed = parts.map((part) => parseNumericExpression(part, options));
+      if (parsed.every((value): value is number => value !== null)) values = parsed;
+    }
+  }
+
+  if (!values) return null;
+  // "±0" and "x = 2 or x = 2" are one value, not a set.
+  const unique = [...new Set(values)].sort((a, b) => a - b);
+  return unique.length >= 2 ? unique : null;
 }

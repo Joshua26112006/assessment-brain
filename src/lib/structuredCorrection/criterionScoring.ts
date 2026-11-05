@@ -199,17 +199,26 @@ async function oneRun(input: CriterionScoringInput, decided: Decided, run: numbe
     const { systemPrompt, userPrompt } = buildPrompts(input, decided, run);
     const askedIds = decided.askModel.map((c) => c.id);
     let usable = false;
-    // A reply that answers none of the criteria is asked for again, then given up on: never recorded as zero.
+    let lastError: unknown = null;
+    // A reply that answers none of the criteria, or is not valid JSON at all, is asked for again, then given up
+    // on: never recorded as zero. (Only network failures were retried before, so one malformed reply cost a whole
+    // run and sent the answer to the teacher for nothing.)
     for (let attempt = 0; attempt < MAX_ATTEMPTS_PER_RUN && !usable; attempt++) {
-      const raw = await callStructuredAi<unknown>({
-        model: JUDGE_MODEL,
-        systemPrompt,
-        userPrompt,
-        temperature: 0,
-        maxAttempts: 3,
-        maxTokens: 1200,
-        stage: "STRUCTURED_SCORING",
-      });
+      let raw: unknown;
+      try {
+        raw = await callStructuredAi<unknown>({
+          model: JUDGE_MODEL,
+          systemPrompt,
+          userPrompt,
+          temperature: 0,
+          maxAttempts: 3,
+          maxTokens: 1200,
+          stage: "STRUCTURED_SCORING",
+        });
+      } catch (error) {
+        lastError = error;
+        continue;
+      }
       const parsed = parseCriterionReply(raw, askedIds, input.reading.transcription);
       if (parsed.outcomes.length > 0) {
         usable = true;
@@ -218,7 +227,13 @@ async function oneRun(input: CriterionScoringInput, decided: Decided, run: numbe
         evidenceNotFound = parsed.evidenceNotFound;
       }
     }
-    if (!usable) throw new Error("The marking model did not return a usable result.");
+    if (!usable) {
+      throw new Error(
+        lastError instanceof Error
+          ? `The marking model did not return a usable result: ${lastError.message.slice(0, 200)}`
+          : "The marking model did not return a usable result.",
+      );
+    }
   }
 
   const outcomes = [...decided.outcomes, ...modelOutcomes];

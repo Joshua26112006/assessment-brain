@@ -20,6 +20,11 @@ export interface ExtractedValue {
   raw: string;
   parsed: number | null;
   /**
+   * For an answer with more than one value ("x = 2 or x = -3", "±2"): its values, ascending. Then `parsed`
+   * is null, because there is no single number. Compared as a set, never value by value.
+   */
+  parsedSet?: number[];
+  /**
    * The unit written with this value, when it is one the unit module recognises
    * ("m/s^2", "mg"). Stored on the rubric's correct answer so the comparison
    * engine can convert (2000 mg = 2 g) and a UNIT criterion can check it. Absent

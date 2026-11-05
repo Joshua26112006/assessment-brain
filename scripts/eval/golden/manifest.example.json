@@ -1,0 +1,22 @@
+{
+  "papers": [
+    {
+      "key": "physics-10",
+      "subject": "Physics",
+      "grade": "10",
+      "curriculum": "CBSE",
+      "title": "Unit Test 1",
+      "questions": [
+        { "n": 1, "marks": 4, "text": "A 2 kg object is lifted through 5 m. Calculate the work done against gravity. (g = 10 m/s^2)" },
+        { "n": 2, "marks": 3, "text": "State Newton's second law of motion." }
+      ],
+      "scripts": [
+        {
+          "id": "student-01",
+          "images": ["scans/student-01-p1.jpg", "scans/student-01-p2.jpg"],
+          "teacherMarks": { "1": [4, 4], "2": [2, 3] }
+        }
+      ]
+    }
+  ]
+}

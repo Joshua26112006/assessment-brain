@@ -322,6 +322,14 @@ function compareValue(
   return { type: mismatchType, expected, actual, comparisonMethod: "numeric", tolerance };
 }
 
+/** Two sets of values are the same set: the same number of values, each matching its partner within tolerance. */
+export function setsAgree(a: number[], b: number[]): boolean {
+  if (a.length !== b.length) return false;
+  const left = [...a].sort((x, y) => x - y);
+  const right = [...b].sort((x, y) => x - y);
+  return left.every((value, index) => Math.abs(value - right[index]) <= numericTolerance(value));
+}
+
 /**
  * Whether the student's final answer is the key's, decided by code and only when it can be decided
  * with confidence: `true` (it is), `false` (it is not), or `null` (it cannot be told — the key is not
@@ -334,6 +342,19 @@ export function finalAnswerVerdict(
   expectation: StructuredExpectation | null,
 ): boolean | null {
   const key = expectation?.solvable ? expectation.correctAnswer : null;
+
+  // An answer with several values ("x = 2 or x = -3"): a student who wrote the whole set is judged against the
+  // whole set. One value of two is neither right nor wrong here — a person (or the scheme) decides — and a set
+  // is never judged value by value.
+  if (key?.parsedSet) {
+    const written = reading.studentAnswer?.parsedSet;
+    if (!reading.attempted || !written) return null;
+    if (reading.structureConfidence === "low" || reading.agreementConfidence === "low") return null;
+    const otherPass = reading.secondPass === undefined ? undefined : (reading.secondPass?.studentAnswer ?? null);
+    if (reading.secondPass !== undefined && !(otherPass?.parsedSet && setsAgree(written, otherPass.parsedSet))) return null;
+    return setsAgree(key.parsedSet, written);
+  }
+
   if (!key || key.parsed === null) return null;
   if (!reading.attempted || !reading.studentAnswer || reading.studentAnswer.parsed === null) return null;
   if (reading.structureConfidence === "low" || reading.agreementConfidence === "low") return null;
