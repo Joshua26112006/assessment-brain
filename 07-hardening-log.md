@@ -39,12 +39,13 @@ These are the items that are genuinely yours. Everything else in this log is eit
 | `20261105120000_add_review_reasons_for_diagrams_and_language` | 5 | review reasons `DIAGRAM_TEACHER_ONLY`, `UNSUPPORTED_LANGUAGE` | Nov 5 |
 | `20261105130000_add_number_format_settings` | 7 | two per-question ticks on a rubric version (percentage answers, decimal comma), both default off | Nov 5 |
 | `20261106100000_add_question_figures` | Diagrams | the QuestionFigure table: figures of a digital paper and a teacher's model diagrams | Nov 6 |
+| `20261106120000_add_diagram_crops` | Diagrams | the DiagramCrop table: diagrams cropped from a student's sheet, with whether both methods agreed | Nov 6 |
 
 After each: 16 users, 9 submissions, 48 responses, 0 mark events, 0 released — unchanged. Phases 4, 6 and 7 changed no schema.
 
-## Problems found while building: 56 (problems 5, 6, 8, 9, 42, 47, 48, 49, 51, 52 and 53 were fixed in later batches)
+## Problems found while building: 59 (problems 5, 6, 8, 9, 42, 47, 48, 49, 51, 52, 53 and 57 were fixed in later batches)
 
-**37 fixed · 16 accepted, decided or observations · 3 open (need you, or a later fix).** Problems 39 to 50 came from the final browser walkthrough, described in its own section below the deviations.
+**38 fixed · 17 accepted, decided or observations · 4 open (need you, or a later fix).** Problems 39 to 50 came from the final browser walkthrough, described in its own section below the deviations.
 
 ### Found when the Phase 1 screens were clicked through in a browser
 
@@ -191,13 +192,13 @@ Done after the owner's answers, all with unit tests, all committed on the same b
 
 The owner's direction: all diagram types and all subjects, in the question paper and in handwritten answers; the AI marks a diagram only when it is very clear and otherwise flags the teacher; question papers are digital PDFs; the correct diagram may come from the paper, from a model diagram the teacher uploads, or be absent, and every mode must work; the teacher still accepts every mark (D1).
 
-Plan, in order. Steps 1 and 2 are built; 3 to 5 are not.
+Plan, in order. Steps 1 to 3 are built; 4 and 5 are not.
 
 | Step | What | State |
 | --- | --- | --- |
 | 1 | Find the figures, graphs and tables of a digital question paper (render each PDF page, read the PDF's exact text positions, find drawings as the marks that are not text, crop them, tie each to the question it follows) and store them | **Built.** Migration `20261106100000` applied to live (one new table, two enums). Tested on a real PDF printed from Chrome and in the browser. |
 | 2 | Show the figures on each question card, let the teacher place a figure that follows no question, add or remove one, upload a model diagram; give the figures to the question check and to the scheme drafter | **Built.** Verified live: with a table attached the checker no longer says the table is missing, and the drafter built the scheme from the table's real numbers. A model diagram makes the drafter write the checklist as visible yes/no features. |
-| 3 | Find and crop a diagram on a student's sheet by two independent methods (non-text ink in the question's region, and the reader model's box); use the crop only when they agree | Not started. The ink finder from step 1 is the first method. |
+| 3 | Find and crop a diagram on a student's sheet by two independent methods (non-text ink in the question's region, and the reader model's box); use the crop only when they agree | **Built.** Migration `20261106120000` applied to live (one new table). Checked end to end through the real evaluation function with real text detection and the real model: one crop, on the right page, tied to the diagram question, found by both methods, answer still parked for the teacher as before. |
 | 4 | Judge a diagram: a checklist run three times with images, median, marks added in code; unflagged only when every condition for "very clear" holds, otherwise flagged | Not started. The card still says "you mark this one" for diagram questions. |
 | 5 | Review screen: the crop beside the reference, the checklist with evidence, and a way to redraw the crop box | Not started. |
 
@@ -208,8 +209,13 @@ Plan, in order. Steps 1 and 2 are built; 3 to 5 are not.
 | 54 | Figures printed as ONE picture shared by several parts ("1(a)" and "1(b)" both use it) belong to the part they follow. | **Handled:** a part is given the figures of every part that shares its number. |
 | 55 | Scanned or photographed question papers have no text layer, so their figures are not found automatically. | **Open, by design for now.** The teacher can upload the figure for a question. The same ink method with a text detector could cover scans later. |
 | 56 | Rotated PDF pages are not handled by the text positions. | **Open (rare).** |
+| 57 | A notebook's ruled lines are marks that are not writing. On a ruled page they joined a diagram's box and stretched it across the page; a rule that a drawing interrupts also split into pieces too short to be recognised as a rule. | **Fixed** (found by a test on a real drawn notebook page). Faint long runs are removed first, and a run carries on across dark ink. A dark pen axis is never removed. |
+| 58 | The ruled-line removal assumes straight, level lines and a clear difference between faint rules and darker ink. A tilted photo, or a drawing in very light pencil, can leave rules in the ink or take part of the drawing out. | **Open, handled by design:** that diagram is then not found by both methods, so it is not confident and goes to the teacher. To be measured on real photographed scripts. |
+| 59 | The model's own idea of where a diagram is can be looser or tighter than the ink's. | **Handled:** a diagram is confident only where the two overlap by at least half, and the crop covers both. |
 
-**Checked in the browser:** approving a digital paper finds its figures after approval; each lands under the right question (a figure under Q1, the table under Q2, the cell diagram under Q4); a question that asks the student to draw is told to take a model diagram; upload of a model diagram; placing a figure that follows no question; "Find the paper's figures again".
+**Checked end to end (step 3):** a diagram question on a real drawn sheet, through `evaluateHandwrittenSubmission` with real text detection and the real model: the page with the drawing gave one confident crop for the diagram question and the text-only page gave none; a failure to find diagrams is logged and changes nothing else.
+
+**Checked in the browser (steps 1 and 2):** approving a digital paper finds its figures after approval; each lands under the right question (a figure under Q1, the table under Q2, the cell diagram under Q4); a question that asks the student to draw is told to take a model diagram; upload of a model diagram; placing a figure that follows no question; "Find the paper's figures again".
 ## Not verified, and why
 
 - (The paper-review screen and the "scheme changed" flag, listed here before, were opened in a browser in the later batches.)
