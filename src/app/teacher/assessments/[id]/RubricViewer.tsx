@@ -19,6 +19,8 @@ export interface RubricViewerData {
   solutionApproaches: RubricViewerApproach[];
   markingCheckpoints: RubricViewerCheckpoint[];
   partialCreditGuidance: string | null;
+  /** The marking scheme is shown right below, with the same marks: do not list them twice. */
+  hideBreakdown?: boolean;
 }
 
 /**
@@ -143,7 +145,7 @@ export default function RubricViewer({ rubric }: { rubric: RubricViewerData }) {
           </Section>
         )}
 
-        {rubric.markingCheckpoints.length > 0 && (
+        {rubric.markingCheckpoints.length > 0 && !rubric.hideBreakdown && (
           <Section title="Marking breakdown">
             <ul className="flex flex-col gap-1.5">
               {rubric.markingCheckpoints.map((checkpoint, index) => (

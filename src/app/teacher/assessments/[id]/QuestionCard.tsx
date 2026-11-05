@@ -125,8 +125,8 @@ export default function QuestionCard({ question }: { question: QuestionCardData 
               <span className="text-xs text-muted">
                 {activeVersion.solutionApproaches.length} approach
                 {activeVersion.solutionApproaches.length === 1 ? "" : "es"} ·{" "}
-                {activeVersion.markingCheckpoints.length} checkpoint
-                {activeVersion.markingCheckpoints.length === 1 ? "" : "s"}
+                {activeVersion.criteria.length > 0 ? activeVersion.criteria.length : activeVersion.markingCheckpoints.length} marking point
+                {(activeVersion.criteria.length > 0 ? activeVersion.criteria.length : activeVersion.markingCheckpoints.length) === 1 ? "" : "s"}
                 {rubric && rubric.versionCount > 1 ? ` · ${rubric.versionCount} versions` : ""}
               </span>
               <span className="ml-auto text-xs font-medium text-accent-text">
@@ -143,6 +143,7 @@ export default function QuestionCard({ question }: { question: QuestionCardData 
                     solutionApproaches: activeVersion.solutionApproaches,
                     markingCheckpoints: activeVersion.markingCheckpoints,
                     partialCreditGuidance: activeVersion.partialCreditGuidance,
+                    hideBreakdown: activeVersion.criteria.length > 0,
                   }}
                 />
 

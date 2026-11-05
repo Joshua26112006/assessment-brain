@@ -40,9 +40,9 @@ These are the items that are genuinely yours. Everything else in this log is eit
 
 After each: 16 users, 9 submissions, 48 responses, 0 mark events, 0 released — unchanged. Phases 4, 6 and 7 changed no schema.
 
-## Problems found while building: 50 (problems 5, 6, 8, 9, 42 and 47 were fixed in a second batch)
+## Problems found while building: 50 (problems 5, 6, 8, 9, 42, 47, 48 and 49 were fixed in later batches)
 
-**26 fixed · 12 accepted or observations · 12 open (need you, or a later fix).** Problems 39 to 50 came from the final browser walkthrough, described in its own section below the deviations.
+**28 fixed · 12 accepted or observations · 10 open (need you, or a later fix).** Problems 39 to 50 came from the final browser walkthrough, described in its own section below the deviations.
 
 ### Found when the Phase 1 screens were clicked through in a browser
 
@@ -156,8 +156,8 @@ Done in a throwaway copy of the app on a scratch database schema, never the live
 | 45 | The OpenRouter key refused the old whole-sheet reading call: "can only afford 32550 tokens" while that call asks for up to 65,536. This is a limit on the key, not a code fault, and the call is old code (Phase 5 did not touch it). For the walkthrough the reading summary was written by hand and the new page-by-page reading and marking ran for real. | **Needs you.** Check the key's credit limit before testing live. The old call asks for far more tokens than it uses. |
 | 46 | A question whose own marker was crossed out (the MCQ "3. C" struck, then "B") gets no mark drawn on the copy. The release message says so, and its mark is still in the total and the student's results. | **Accepted** (a mark is never drawn at a guessed spot). |
 | 47 | On the marked copy, the mark symbols sit on top of the question label ("1(a)") and the total circle covers the "Page 1/2" header on this sheet. Where the margin is wider on a real sheet this may not happen. | **Fixed.** The tick, double stroke or cross is drawn in the margin left of the question's own marker; the old fixed span is used only when that margin is too narrow. |
-| 48 | The scheme panel's "Follow-through" setting is shown for descriptive questions where it means nothing, and the rubric is shown twice (as the rubric and again as the marking scheme). | **Open (polish).** |
-| 49 | The scheme-approval list showed "1 approach · 0 checkpoints" for an exact-answer (MCQ) scheme. | **Open (polish).** |
+| 48 | The scheme panel's "Follow-through" setting is shown for descriptive questions where it means nothing, and the rubric is shown twice (as the rubric and again as the marking scheme). | **Fixed.** The two rules show only for a calculation (working plus a final answer); other questions say there is nothing to set. The marking breakdown is no longer listed twice. |
+| 49 | The scheme-approval list showed "1 approach · 0 checkpoints" for an exact-answer (MCQ) scheme. | **Fixed.** The card counts "marking points" from the scheme, so an exact-answer question shows 1, not 0. |
 | 50 | The unused older typed-answer form (`AnswerForm.tsx`) still shows the question number. It is not shown anywhere. | **Left as is.** |
 
 **Checked and fine in the browser:** the approval panel counts and the blocked Publish button; "Approve this scheme" recording the approval; the review screen (criteria with evidence, three runs, greyed rough work, kept/removed mistakes, diagram sent to the teacher with the page shown, over-attempt note); the early "Confirm" being refused with a list; "Accept all sure answers"; the total (8.5 of 11: the better of 2(a) and 2(b) counts, the other kept with a star); confirm, then release; the released message about the mark that could not be placed; the student's marked copy and results (star and note on the over-attempt, the teacher's diagram mark); the submissions page and its calibration panel (it waits for 10 reviewed answers before showing agreement).

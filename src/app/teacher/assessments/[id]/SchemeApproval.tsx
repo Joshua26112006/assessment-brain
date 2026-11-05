@@ -3,6 +3,7 @@
 import { useActionState } from "react";
 import StatusBadge from "@/components/ui/StatusBadge";
 import { buttonClass } from "@/components/ui/styles";
+import { rulesApply } from "@/lib/scheme/criteria";
 import { approveSchemeAction, saveSchemeRulesAction, type ActionState } from "./actions";
 
 export type SchemeCriterionView = {
@@ -88,6 +89,13 @@ export default function SchemeApproval({
         ))}
       </ol>
 
+      {!rulesApply(criteria) && (
+        <p className="mt-4 border-t border-line pt-3 text-xs text-muted">
+          Follow-through and &ldquo;correct answer with no working&rdquo; do not apply to this kind of question, so there is nothing to set.
+        </p>
+      )}
+
+      {rulesApply(criteria) && (
       <form action={rulesAction} className="mt-4 grid gap-3 border-t border-line pt-3 sm:grid-cols-2">
         <label className="flex flex-col gap-1 text-xs font-medium text-muted">
           Follow-through
@@ -117,6 +125,7 @@ export default function SchemeApproval({
           {rulesState.success && <p role="status" className="mt-1.5 text-xs font-medium text-success">Rules saved.</p>}
         </div>
       </form>
+      )}
 
       {!approved && (
         <form action={approveAction} className="mt-4">

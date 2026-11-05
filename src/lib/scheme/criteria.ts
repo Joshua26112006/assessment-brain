@@ -62,6 +62,17 @@ export const METHOD_KINDS: readonly CriterionKind[] = ["STEP", "VALUE", "VALUE_P
 /** Criteria that are about the answer itself. */
 export const ANSWER_KINDS: readonly CriterionKind[] = ["FINAL_ANSWER", "UNIT", "EXACT_KEY"];
 
+/**
+ * Do the two scheme rules (follow-through, and what a correct answer with no working earns) mean anything for
+ * this scheme? They do only where there is working to follow through or to be missing: a final answer plus at
+ * least one step or value before it. A descriptive answer, an essay or an exact-answer question has neither,
+ * so asking the teacher about them would be noise.
+ */
+export function rulesApply(criteria: Array<{ kind: string }>): boolean {
+  const kinds = new Set(criteria.map((criterion) => criterion.kind));
+  return kinds.has("FINAL_ANSWER") && (kinds.has("STEP") || kinds.has("VALUE"));
+}
+
 export const MARK_GRANULARITY = 0.5;
 
 export function isHalfMarkMultiple(value: number): boolean {
