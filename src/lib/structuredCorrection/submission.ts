@@ -3,6 +3,9 @@ import { prisma } from "@/lib/prisma";
 import { createReviewItemIfNeeded } from "@/lib/assessment/pipelineReviewItems";
 import { holdForUnapprovedScheme, mayMarkAgainst } from "@/lib/assessment/schemeGate";
 import { schemeOf, type Scheme } from "@/lib/scheme/criteria";
+import { answerTypeOf, type AnswerType } from "@/lib/questions/answerType";
+import { holdForTeacher } from "@/lib/assessment/holds";
+import { routeAnswer } from "@/lib/structuredCorrection/routing";
 import { loadOrderedAnswerSheetPages } from "@/lib/handwritten/pages";
 import { readStructuredAnswers } from "@/lib/structuredCorrection/structuredReading";
 import { correctStructuredQuestion, type StructuredQuestionCorrection } from "@/lib/structuredCorrection/pipeline";
@@ -34,6 +37,8 @@ interface QuestionContext {
   questionNumber: number;
   /** What the paper calls it ("2(a)"); null for an ordinary question. */
   label: string | null;
+  /** How this question is marked, which decides where its answer goes (see routing.ts). */
+  answerType: AnswerType;
   questionText: string;
   maximumMarks: number;
   expectedAnswer: string | null;
@@ -102,7 +107,20 @@ function buildAnnotationResult(correction: StructuredQuestionCorrection): Annota
   };
 }
 
-async function loadQuestionContexts(submissionId: string, assessmentId: string): Promise<QuestionContext[]> {
+/** Every question of the paper, so the reader can also find writing the answer-mapping step did not assign to one. */
+interface ReadingQuestionRow {
+  questionId: string;
+  questionNumber: number;
+  label: string | null;
+  questionText: string;
+  /** The mapping step found writing for this question (it has an answer row). */
+  hasResponse: boolean;
+}
+
+async function loadQuestionContexts(
+  submissionId: string,
+  assessmentId: string,
+): Promise<{ contexts: QuestionContext[]; readingQuestions: ReadingQuestionRow[] }> {
   const [questions, responses] = await Promise.all([
     prisma.question.findMany({
       where: { assessmentId },
@@ -111,6 +129,7 @@ async function loadQuestionContexts(submissionId: string, assessmentId: string):
         id: true,
         questionNumber: true,
         label: true,
+        answerType: true,
         questionText: true,
         maximumMarks: true,
         rubric: {
@@ -142,7 +161,17 @@ async function loadQuestionContexts(submissionId: string, assessmentId: string):
 
   const responseByQuestionId = new Map(responses.map((response) => [response.questionId, response]));
 
-  return questions.flatMap((question): QuestionContext[] => {
+  const readingQuestions = questions.map(
+    (question): ReadingQuestionRow => ({
+      questionId: question.id,
+      questionNumber: question.questionNumber,
+      label: question.label ?? null,
+      questionText: question.questionText,
+      hasResponse: responseByQuestionId.has(question.id),
+    }),
+  );
+
+  const contexts = questions.flatMap((question): QuestionContext[] => {
     const response = responseByQuestionId.get(question.id);
     // Only questions the mapping stage actually associated with written content
     // have a response row; the rest were not answered and are not this flow's
@@ -151,19 +180,23 @@ async function loadQuestionContexts(submissionId: string, assessmentId: string):
 
     const version = question.rubric?.activeVersion ?? null;
     const studentAnswer = (response.studentAnswer ?? {}) as { sourcePages?: unknown; text?: unknown };
+    const scheme = schemeOf(version ?? {}, Number(question.maximumMarks));
+    const expectation = (version?.structuredExpectation as unknown as StructuredExpectation | null) ?? null;
 
     return [
       {
         questionId: question.id,
         questionNumber: question.questionNumber,
         label: question.label ?? null,
+        // How this question is marked: the teacher's choice, else worked out from the scheme.
+        answerType: answerTypeOf({ answerType: question.answerType, criteria: scheme.criteria, numericSolvable: expectation?.solvable === true }),
         questionText: question.questionText,
         maximumMarks: Number(question.maximumMarks),
         expectedAnswer: version?.expectedAnswer ?? null,
         partialCreditGuidance: version?.partialCreditGuidance ?? null,
         markingCheckpoints: (version?.markingCheckpoints as unknown as RubricMarkingCheckpoint[]) ?? [],
-        scheme: schemeOf(version ?? {}, Number(question.maximumMarks)),
-        structuredExpectation: (version?.structuredExpectation as unknown as StructuredExpectation) ?? null,
+        scheme,
+        structuredExpectation: expectation,
         rubricVersionId: version?.id ?? null,
         schemeApproved: mayMarkAgainst(version),
         responseId: response.id,
@@ -174,6 +207,8 @@ async function loadQuestionContexts(submissionId: string, assessmentId: string):
       },
     ];
   });
+
+  return { contexts, readingQuestions };
 }
 
 async function persistCorrection(
@@ -212,6 +247,12 @@ async function persistCorrection(
               Object.entries(correction.reading.variables).map(([name, value]) => [name, value.raw]),
             ),
             studentAnswer: correction.reading.studentAnswer?.raw ?? null,
+            // Everything read for this answer with its status, so the teacher can see what was crossed out or
+            // was rough work (shown greyed, never marked) and what was a diagram or in another language.
+            segments: correction.reading.segments ?? [],
+            containsDiagram: correction.reading.containsDiagram ?? false,
+            languages: correction.reading.languages ?? [],
+            conflictingAttempts: correction.reading.conflictingAttempts ?? false,
           },
           comparison: correction.comparison,
           verificationStatus: correction.verification?.status ?? null,
@@ -371,7 +412,7 @@ export async function runStructuredCorrectionForSubmission(submissionId: string)
   });
   if (!submission) return;
 
-  const allContexts = await loadQuestionContexts(submissionId, submission.assessmentId);
+  const { contexts: allContexts, readingQuestions } = await loadQuestionContexts(submissionId, submission.assessmentId);
 
   // Nothing is marked against a scheme no teacher has approved (decision D8). Those answers are
   // parked for the teacher with a clear reason and are picked up again when the scheme is approved.
@@ -386,19 +427,38 @@ export async function runStructuredCorrectionForSubmission(submissionId: string)
       }),
     ),
   );
-  const contexts = allContexts.filter((context) => context.schemeApproved);
+  const approved = allContexts.filter((context) => context.schemeApproved);
+
+  // A diagram, graph, construction, map or chemical structure is marked by the teacher, never by the AI
+  // (decision D3). It is parked straight away; no mark is drafted.
+  const diagrams = approved.filter((context) => routeAnswer({ answerType: context.answerType, reading: null }).kind === "TEACHER_ONLY_DIAGRAM");
+  await Promise.all(
+    diagrams.map((context) =>
+      holdForTeacher({
+        responseId: context.responseId,
+        assessmentId: submission.assessmentId,
+        submissionId,
+        questionId: context.questionId,
+        reason: "DIAGRAM_TEACHER_ONLY",
+        detail: "This answer is a diagram, graph or drawing, so it was not marked automatically.",
+      }),
+    ),
+  );
+  const contexts = approved.filter((context) => !diagrams.includes(context));
   if (contexts.length === 0) return;
 
   let pages;
   let readings: Map<number, ReconciledReading>;
   try {
     pages = await loadOrderedAnswerSheetPages(submissionId);
+    // Every question of the paper is read, not only the ones the mapping step found writing for, so
+    // writing the mapping step missed (or put under another question) is noticed.
     readings = await readStructuredAnswers(
       pages,
-      contexts.map((context) => ({
-        questionNumber: context.questionNumber,
-        label: context.label,
-        questionText: context.questionText,
+      readingQuestions.map((question) => ({
+        questionNumber: question.questionNumber,
+        label: question.label,
+        questionText: question.questionText,
       })),
     );
   } catch (error) {
@@ -408,6 +468,26 @@ export async function runStructuredCorrectionForSubmission(submissionId: string)
     );
     return;
   }
+
+  // The OTHER direction of the same disagreement: the reader found writing for a question the mapping step
+  // gave no answer to. That writing may belong to another question (or the mapping missed it), so a teacher
+  // is told rather than the writing being silently dropped or silently given a mark.
+  await Promise.all(
+    readingQuestions
+      .filter((question) => !question.hasResponse && readings.get(question.questionNumber)?.attempted)
+      .map((question) =>
+        createReviewItemIfNeeded({
+          reason: "AMBIGUOUS_EXTRACTION",
+          assessmentId: submission.assessmentId,
+          questionId: question.questionId,
+          submissionId,
+          context: {
+            kind: "UNMAPPED_WRITING",
+            detail: `Writing that looks like an answer to question ${question.label ?? question.questionNumber} was found on the pages, but the answer-mapping step did not give this question any answer. Check the pages.`,
+          },
+        }),
+      ),
+  );
 
   // Questions are independent: one failing must never hold back the others,
   // matching how the existing handwritten flow runs its per-question work.
@@ -423,7 +503,26 @@ export async function runStructuredCorrectionForSubmission(submissionId: string)
         return null;
       }
 
+      // Where this answer goes, by what it is: another language goes to the teacher (decision D7); an essay,
+      // two live attempts, a diagram inside a text answer, or a lone crossed-out answer are marked but
+      // always shown to the teacher with the reason.
+      const route = routeAnswer({ answerType: context.answerType, reading });
+      if (route.kind === "CANNOT_READ_LANGUAGE") {
+        await holdForTeacher({
+          responseId: context.responseId,
+          assessmentId: submission.assessmentId,
+          submissionId,
+          questionId: context.questionId,
+          reason: "UNSUPPORTED_LANGUAGE",
+          detail: `The answer is written in ${route.languages.join(" and ")}, which is not marked automatically.`,
+          context: { languages: route.languages },
+        });
+        return null;
+      }
+      const extraReasons = route.kind === "MARK" ? route.extraReasons : [];
+
       const correction = await correctStructuredQuestion({
+        extraReasons,
         questionId: context.questionId,
         questionNumber: context.questionNumber,
         questionText: context.questionText,

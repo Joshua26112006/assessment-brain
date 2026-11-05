@@ -145,6 +145,92 @@ describe("runStructuredCorrectionForSubmission — nothing is marked against an 
   });
 });
 
+describe("runStructuredCorrectionForSubmission — each answer goes where its question says (Phase 5)", () => {
+  it("a diagram question is the teacher's: parked with a reason, no mark drafted, and not even read", async () => {
+    setUpSubmission([1]);
+    db.question.findMany.mockResolvedValue([{ ...questionRow(1), answerType: "DIAGRAM" }] as never);
+
+    await runStructuredCorrectionForSubmission(SUBMISSION);
+
+    expect(correct).not.toHaveBeenCalled();
+    expect(readSheet).not.toHaveBeenCalled();
+    expect(db.questionResponse.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { status: "NEEDS_REVIEW" } }));
+    expect(flagForTeacher.mock.calls[0][0]).toMatchObject({ reason: "DIAGRAM_TEACHER_ONLY", questionResponseId: "r1" });
+  });
+
+  it("an answer written in another language is the teacher's, with the language named, and gets no AI mark", async () => {
+    setUpSubmission([1, 2]);
+    readSheet.mockResolvedValue(new Map([[1, reading(1, { languages: ["Hindi"] })], [2, reading(2, { languages: ["English"] })]]));
+    correct.mockImplementation(async (input) => ({
+      questionId: input.questionId,
+      questionNumber: input.questionNumber,
+      reading: input.reading,
+      score: { awardedMarks: 3, maximumMarks: 4, feedback: "ok" },
+      comparison: { status: "skipped_unsolvable" as const, matchedApproachLabel: null, errors: [], matchedVariableCount: 0, totalExpectedVariableCount: 0 },
+      verification: null,
+      explanations: [],
+      mistakesWithheld: false,
+    }));
+
+    await runStructuredCorrectionForSubmission(SUBMISSION);
+
+    expect(correct).toHaveBeenCalledTimes(1);
+    expect(correct.mock.calls[0][0].questionNumber).toBe(2);
+    const held = flagForTeacher.mock.calls.find(([args]) => args.reason === "UNSUPPORTED_LANGUAGE");
+    expect(held?.[0]).toMatchObject({ questionResponseId: "r1" });
+    expect((held?.[0].context as { detail: string }).detail).toMatch(/Hindi/);
+  });
+
+  it("an essay is marked but always carries the 'checked by you' reason into the marking", async () => {
+    setUpSubmission([1]);
+    db.question.findMany.mockResolvedValue([{ ...questionRow(1), answerType: "ESSAY" }] as never);
+    readSheet.mockResolvedValue(new Map([[1, reading(1)]]));
+    correct.mockImplementation(async (input) => ({
+      questionId: input.questionId, questionNumber: input.questionNumber, reading: input.reading,
+      score: { awardedMarks: 3, maximumMarks: 4, feedback: "ok" },
+      comparison: { status: "skipped_unsolvable" as const, matchedApproachLabel: null, errors: [], matchedVariableCount: 0, totalExpectedVariableCount: 0 },
+      verification: null, explanations: [], mistakesWithheld: false,
+    }));
+
+    await runStructuredCorrectionForSubmission(SUBMISSION);
+
+    expect(correct.mock.calls[0][0].extraReasons).toContain("Long answers are always checked by you.");
+  });
+
+  it("reads every question of the paper, so writing the mapping step missed can be noticed", async () => {
+    setUpSubmission([1, 2], [responseRow(1)]);
+    readSheet.mockResolvedValue(new Map([[1, reading(1)]]));
+    correct.mockImplementation(async (input) => ({
+      questionId: input.questionId, questionNumber: input.questionNumber, reading: input.reading,
+      score: { awardedMarks: 3, maximumMarks: 4, feedback: "ok" },
+      comparison: { status: "skipped_unsolvable" as const, matchedApproachLabel: null, errors: [], matchedVariableCount: 0, totalExpectedVariableCount: 0 },
+      verification: null, explanations: [], mistakesWithheld: false,
+    }));
+
+    await runStructuredCorrectionForSubmission(SUBMISSION);
+
+    expect(readSheet.mock.calls[0][1].map((q) => q.questionNumber)).toEqual([1, 2]);
+  });
+
+  it("tells the teacher when the reader found an answer to a question the mapping step gave nothing to", async () => {
+    setUpSubmission([1, 2], [responseRow(1)]);
+    readSheet.mockResolvedValue(new Map([[1, reading(1)], [2, reading(2)]]));
+    correct.mockImplementation(async (input) => ({
+      questionId: input.questionId, questionNumber: input.questionNumber, reading: input.reading,
+      score: { awardedMarks: 3, maximumMarks: 4, feedback: "ok" },
+      comparison: { status: "skipped_unsolvable" as const, matchedApproachLabel: null, errors: [], matchedVariableCount: 0, totalExpectedVariableCount: 0 },
+      verification: null, explanations: [], mistakesWithheld: false,
+    }));
+
+    await runStructuredCorrectionForSubmission(SUBMISSION);
+
+    const unmapped = flagForTeacher.mock.calls.find(([args]) => (args.context as { kind?: string }).kind === "UNMAPPED_WRITING");
+    expect(unmapped?.[0]).toMatchObject({ reason: "AMBIGUOUS_EXTRACTION", questionId: "q2" });
+    expect(unmapped?.[0].questionResponseId).toBeUndefined();
+    expect(correct).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("runStructuredCorrectionForSubmission — nothing is ever left pending with nobody told", () => {
   it("sends every question to a teacher when the answer sheet cannot be read at all", async () => {
     setUpSubmission([1, 2, 3]);

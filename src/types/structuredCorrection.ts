@@ -122,6 +122,26 @@ export interface ReconciledReading {
     variables: Record<string, ExtractedValue>;
     studentAnswer: ExtractedValue | null;
   } | null;
+  /**
+   * Everything read for this question, each piece with its page and status, so the teacher can see what
+   * was crossed out or rough work. `transcription` above holds only what is MARKED.
+   */
+  segments?: ReadingSegment[];
+  /** The answer includes a diagram, graph, construction or drawing (decision D3: a teacher marks that part). */
+  containsDiagram?: boolean;
+  /** Languages the words were written in; anything other than English goes to a teacher (decision D7). */
+  languages?: string[];
+  /** Two different un-struck attempts at one answer were found, so a teacher decides which counts. */
+  conflictingAttempts?: boolean;
+}
+
+/** One piece of a student's answer as read from one page. */
+export interface ReadingSegment {
+  page: number;
+  status: "active" | "struck" | "rough";
+  /** Whether this piece is part of what is marked (live text, or struck text that was never replaced). */
+  marked: boolean;
+  text: string;
 }
 
 // ---------------------------------------------------------------------------

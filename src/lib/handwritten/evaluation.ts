@@ -1,9 +1,8 @@
 import { prisma } from "@/lib/prisma";
-import { runPipelineForQuestionResponse } from "@/lib/assessment/pipeline";
 import { recalculateSubmissionStatus } from "@/lib/assessment/submissionStatusSync";
 import { createReviewItemIfNeeded } from "@/lib/assessment/pipelineReviewItems";
 import { markExactKeyAnswers } from "@/lib/assessment/exactKeyMarking";
-import { hasCheckableRubric, runStructuredCorrectionForSubmission } from "@/lib/structuredCorrection/submission";
+import { runStructuredCorrectionForSubmission } from "@/lib/structuredCorrection/submission";
 import type { AnswerIndexEntry, AnswerSheetValidationResult, StructuredAnswerIndex } from "./types";
 
 /**
@@ -89,7 +88,6 @@ export async function evaluateHandwrittenSubmission(submissionId: string): Promi
   // an honest "being evaluated" state rather than a stale SUBMITTED.
   await prisma.submission.update({ where: { id: submissionId }, data: { status: "PROCESSING" } });
 
-  const questionResponseIds: string[] = [];
   for (const entry of mappedEntries) {
     // Idempotent by construction: upsert with an empty `update` means an
     // already-existing QuestionResponse (a prior processing attempt, a
@@ -108,7 +106,6 @@ export async function evaluateHandwrittenSubmission(submissionId: string): Promi
       update: {},
       select: { id: true },
     });
-    questionResponseIds.push(response.id);
 
     // Flag genuinely uncertain readings/mappings for teacher attention.
     // Idempotent via createReviewItemIfNeeded's own {questionResponseId,
@@ -137,32 +134,13 @@ export async function evaluateHandwrittenSubmission(submissionId: string): Promi
   // no model, before either route below. They finish here, so both routes skip them.
   await markExactKeyAnswers(submissionId);
 
-  // A paper whose rubrics carry checkable expectations takes a different route
-  // from here: its answers are working to be checked step by step against the
-  // rubric and marked up on the page the student wrote, which the
-  // checkpoint-based pipeline below has no notion of. Everything above —
-  // mapping, review signals, response creation — is shared, and anything the
-  // rubric cannot check this way continues down the existing path unchanged.
-  if (await hasCheckableRubric(submission.assessmentId)) {
-    await runStructuredCorrectionForSubmission(submissionId);
-    await recalculateSubmissionStatus(prisma, submissionId).catch(() => {});
-    return;
-  }
-
-  // One failed question's evaluation must never prevent or roll back
-  // another's successful result — identical reasoning to submitAssessment's
-  // own use of Promise.allSettled (not Promise.all) for the typed-answer
-  // flow. runPipelineForQuestionResponse's own idempotency guard (claiming
-  // via an atomic status transition, skipping already-terminal responses)
-  // is reused as-is — nothing here duplicates or competes with it.
-  const outcomes = await Promise.allSettled(
-    questionResponseIds.map((id) => runPipelineForQuestionResponse(id)),
-  );
-  for (const outcome of outcomes) {
-    if (outcome.status === "rejected") {
-      console.error("Unexpected handwritten evaluation failure", outcome.reason);
-    }
-  }
+  // Every remaining answer is routed by what the QUESTION is (a number, a short answer, an explanation, an
+  // essay, a diagram), never by the paper as a whole. This used to depend on whether ANY question on the paper
+  // was a checkable calculation: one such question sent the whole paper down one route, and a paper with none
+  // sent its numeric working down the other. Now each answer is read page by page and marked by the criteria
+  // of its approved scheme; a diagram or an answer in another language is parked for the teacher; an answer
+  // marked by code above is already finished and is skipped.
+  await runStructuredCorrectionForSubmission(submissionId);
 
   // Re-derives Submission.status from the QuestionResponse rows that now
   // exist — the exact same shared utility the typed-answer flow and the

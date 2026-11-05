@@ -17,7 +17,7 @@ import { ACTIONABLE_REVIEW_STATUSES } from "@/lib/review-scope";
 import { REVIEW_DECISION_CONTRACT_VERSION, type ReviewDecisionRecord } from "@/types/review";
 import type { GradingResult } from "@/types/pipeline";
 import type { MarkingDetail } from "@/lib/structuredCorrection/scoring";
-import type { StoredFinding } from "@/types/structuredCorrection";
+import type { ReadingSegment, StoredFinding } from "@/types/structuredCorrection";
 
 /**
  * Everything a teacher does to a submission's marks between "the AI drafted
@@ -86,6 +86,25 @@ export interface ReviewAnswerRow {
     marking: MarkingDetail | null;
   } | null;
   attention: AnswerAttention;
+}
+
+/**
+ * Every piece of the answer as it was read, with its page and whether it was marked: live text, crossed-out
+ * work and rough work. Empty for an answer read before pieces were kept.
+ */
+export function readingSegmentsOf(correctionResult: unknown): ReadingSegment[] {
+  if (typeof correctionResult !== "object" || correctionResult === null) return [];
+  const reading = (correctionResult as { reading?: unknown }).reading;
+  if (typeof reading !== "object" || reading === null) return [];
+  const list = (reading as { segments?: unknown }).segments;
+  if (!Array.isArray(list)) return [];
+  return list.filter(
+    (item): item is ReadingSegment =>
+      typeof item === "object" &&
+      item !== null &&
+      typeof (item as ReadingSegment).text === "string" &&
+      ["active", "struck", "rough"].includes((item as ReadingSegment).status),
+  );
 }
 
 /** The marking detail stored with a response, validated; null when absent or not in the expected shape. */

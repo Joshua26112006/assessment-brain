@@ -2,15 +2,9 @@ import type { ChatCompletionContentPart } from "openai/resources/chat/completion
 import { READ_MODEL } from "@/lib/ai/models";
 import { callStructuredAiWithContent } from "@/lib/ai/callStructured";
 import { questionPromptLine } from "@/lib/questions/labels";
-import { parseNumericExpression } from "@/lib/structuredCorrection/numericExpression";
+import { parsePageResponse, stitchPass, type PageSegment, type StitchedReading } from "@/lib/structuredCorrection/pageSegments";
 import { reconcileByKey, type ReconciledEntry } from "@/lib/structuredCorrection/reconcile";
-import {
-  PROBLEM_TYPES,
-  type ExtractedValue,
-  type ProblemType,
-  type ReconciledReading,
-  type ReconcileConfidence,
-} from "@/types/structuredCorrection";
+import type { ReconciledReading } from "@/types/structuredCorrection";
 import type { HandwrittenPageInput } from "@/lib/handwritten/types";
 
 /**
@@ -18,50 +12,19 @@ import type { HandwrittenPageInput } from "@/lib/handwritten/types";
  * the student's pages and decompose it into named quantities and a final
  * value, so a later deterministic stage can compare it against the rubric.
  *
- * Read TWICE and reconciled (see reconcile.ts). A single vision-model pass
- * over handwriting is not reliably repeatable — the same upload can disagree
- * with itself about whether a question was even attempted — and every stage
- * downstream depends on these extracted values, so an unverified single read
- * would put an unmeasured error rate underneath the whole pipeline.
+ * Read PAGE BY PAGE, TWICE, and reconciled (see reconcile.ts, pageSegments.ts).
  *
- * Extraction only. This stage never solves the question, never consults the
- * rubric, and never judges correctness: it reports what the student wrote.
- * Keeping it ignorant of the expected answer is what stops it from quietly
- * "reading" the answer the rubric wanted to see.
+ *   - Page by page: reading a whole paper in one reply capped the length of every answer and of the
+ *     paper itself (one 8000-token reply had to hold everything). Each page is its own small call; the
+ *     pieces of an answer that run across pages are stitched together by question.
+ *   - Twice: a single vision-model pass over handwriting is not reliably repeatable — the same upload
+ *     can disagree with itself about whether a question was even attempted — and every stage downstream
+ *     depends on these values. The two passes are worded differently so their errors are less alike.
+ *
+ * Extraction only. This stage never solves the question, never consults the rubric, and never judges
+ * correctness: it reports what the student wrote, copied exactly. Keeping it ignorant of the expected
+ * answer is what stops it from quietly "reading" the answer the rubric wanted to see.
  */
-
-const MAX_TRANSCRIPTION_LENGTH = 4000;
-const MAX_STEPS = 30;
-const MAX_STEP_LENGTH = 500;
-const MAX_VARIABLES = 40;
-const MAX_VALUE_LENGTH = 200;
-
-interface RawStructuredReadingEntry {
-  questionNumber?: unknown;
-  attempted?: unknown;
-  transcription?: unknown;
-  problemType?: unknown;
-  steps?: unknown;
-  variables?: unknown;
-  studentAnswer?: unknown;
-  structureConfidence?: unknown;
-}
-
-interface RawStructuredReadingResponse {
-  answers?: unknown;
-}
-
-/** One question as a single pass read it, before any cross-pass reconciliation. */
-interface SinglePassReading {
-  questionNumber: number;
-  attempted: boolean;
-  transcription: string;
-  problemType: ProblemType;
-  steps: string[];
-  variables: Record<string, ExtractedValue>;
-  studentAnswer: ExtractedValue | null;
-  structureConfidence: ReconcileConfidence;
-}
 
 export interface ReadingQuestion {
   questionNumber: number;
@@ -70,23 +33,38 @@ export interface ReadingQuestion {
   questionText: string;
 }
 
-function buildSystemPrompt(): string {
+/** Pages read at the same time, so a long booklet does not flood the provider. */
+const PAGE_CONCURRENCY = 4;
+const MAX_TOKENS_PER_PAGE = 4000;
+
+export type ReadingVariant = "top-down" | "marker-first";
+
+export function buildPageSystemPrompt(variant: ReadingVariant): string {
+  const approach =
+    variant === "marker-first"
+      ? "Work in two steps: first identify every question marker you can see on this page (\"3)\", \"Q3\", \"(3)\", \"3(b)\", \"(b)\" under question 3), then transcribe the writing that belongs to each marker. Report only the final JSON."
+      : "Read the page from top to bottom, one answer at a time, and transcribe each as you reach it.";
   return [
-    "You are reading a student's handwritten answer sheet (multiple photographed pages, in order) so that a separate program can check their working.",
-    "You are NOT grading. Never judge whether anything is correct, never award marks, never correct the student's values, and never solve any question yourself.",
+    "You are reading ONE page of a student's handwritten answer sheet so that a separate program can check their working.",
+    "You are NOT grading. Never judge whether anything is correct, never award marks, never correct anything, and never solve any question yourself.",
+    approach,
     "Respond with ONLY a single JSON object, no text before or after it, matching exactly:",
-    '{"answers": [{"questionNumber": number, "attempted": boolean, "transcription": string, "problemType": string, "steps": [string], "variables": {"<name>": "<value>"}, "studentAnswer": string, "structureConfidence": "high" | "medium" | "low"}]}',
+    '{"segments": [{"questionNumber": number, "status": "active" | "struck" | "rough", "replaced": boolean, "transcription": string, "problemType": string, "steps": [string], "variables": {"<name>": "<value>"}, "studentAnswer": string, "containsDiagram": boolean, "language": string, "twoAttempts": boolean, "structureConfidence": "high" | "medium" | "low"}]}',
     "",
     "Rules, all mandatory:",
-    "1. Include exactly one entry for every question number listed below, in ascending order — even the ones the student did not answer.",
-    "2. attempted: false only when you find no written work for that question anywhere on the pages. When false, use an empty transcription, empty steps, empty variables and an empty studentAnswer.",
-    "3. A question's answer begins at the student's own marker for it (e.g. \"3)\", \"Q3\", \"(3)\", \"3(b)\", or \"(b)\" under question 3) and ends where the next question's marker begins. An answer may continue across pages — collect all of it. Some questions are parts of a numbered question and are listed under the name a student writes, for example \"Question 2(a) (refer to it by the number 7)\"; always use the number the list gives, never the printed label.",
-    "4. transcription: what the student actually wrote, as exactly as you can read it, including their working and any mistakes. Never fix, complete, tidy or paraphrase it. If part is illegible, transcribe what you can and leave the rest out rather than guessing.",
-    "5. problemType: exactly one of \"mean\", \"median\", \"mode\", \"range\", \"probability\", \"algebra\", \"coordinate_geometry\". Use \"unknown\" whenever you are not confident — never force a guess.",
-    "6. steps: the distinct logical steps the student actually wrote, in their order (e.g. \"stated the mode formula\", \"substituted values\", \"simplified\"). Do not invent steps they did not write, and do not omit steps they did.",
-    "7. variables: every named quantity the student explicitly wrote a value for, as name to value (e.g. {\"l\": \"30\", \"f1\": \"15\", \"f0\": \"9\"}). Copy each value EXACTLY as the student wrote it — keep fractions, decimals and expressions as-is, and never compute, round or simplify anything. Use the student's own names for the quantities. Use {} if they named none.",
-    "8. studentAnswer: the student's own final concluding value, verbatim (e.g. \"33\", \"5/12\"). Empty string if they never reached one. Never supply a value the student did not write.",
-    "9. structureConfidence: how confident you are that this decomposition faithfully reflects what is written — \"low\" if the handwriting was hard to read or the working was hard to follow.",
+    "1. One segment for each piece of an answer that appears on THIS page. A question with nothing written on this page gets no segment. Never report a question that is not in the list below.",
+    "2. An answer may start on an earlier page or carry on to a later one (the student may write \"contd.\" or just carry on with no number). If writing on this page plainly continues the previous question's answer, report it under that question's number.",
+    "3. A question's answer begins at the student's own marker for it and ends where the next marker begins. Some questions are parts of a numbered question and are listed under the name a student writes, for example \"Question 2(a) (refer to it by the number 7)\"; always use the number the list gives, never the printed label.",
+    "4. transcription: COPY EXACTLY what is written, character for character, including every mistake. NEVER correct arithmetic, spelling, grammar, units or logic; never complete an unfinished calculation; never tidy, reorder or paraphrase. If a word or value is illegible, write [illegible] in its place rather than guessing. A diagram or drawing is written as [diagram], with any words or numbers written on it copied beside it.",
+    "5. status: \"active\" for work the student has left standing. \"struck\" for work the student crossed out, scribbled over or struck through; set replaced to true ONLY if they wrote another attempt at the same answer to replace it. \"rough\" for rough work: calculations in the margin, under a \"rough work\" heading, or scratch working that is clearly not part of the answer. Never drop crossed-out or rough work — report it with its status.",
+    "6. twoAttempts: true when two DIFFERENT answers to the same question are both left standing (neither crossed out) on this page.",
+    "7. containsDiagram: true when this piece of the answer includes a drawing, graph, geometric construction, map or chemical structure.",
+    "8. language: the language the WORDS are written in, for example \"English\", \"Hindi\", \"Tamil\"; \"none\" when there are only numbers and symbols.",
+    "9. problemType: exactly one of \"mean\", \"median\", \"mode\", \"range\", \"probability\", \"algebra\", \"coordinate_geometry\". Use \"unknown\" whenever you are not confident — never force a guess.",
+    "10. steps: the distinct logical steps the student actually wrote, in their order. Do not invent steps they did not write.",
+    "11. variables: every named quantity the student explicitly wrote a value for, as name to value (e.g. {\"l\": \"30\", \"f1\": \"15\"}). Copy each value EXACTLY as written; never compute, round or simplify. Use the student's own names. Use {} if none.",
+    "12. studentAnswer: the student's own final concluding value on this page, verbatim. Empty string if they did not reach one here. Never supply a value the student did not write.",
+    "13. structureConfidence: how confident you are that this decomposition faithfully reflects what is written — \"low\" if the handwriting was hard to read.",
   ].join("\n");
 }
 
@@ -94,122 +72,67 @@ function buildQuestionList(questions: ReadingQuestion[]): string {
   return questions.map((q) => questionPromptLine(q)).join("\n");
 }
 
-function toTrimmed(value: unknown, maxLength: number): string {
-  return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
-}
-
-/** Numeric worth is decided by our own evaluator, never by the model — see numericExpression.ts. */
-function toExtractedValue(value: unknown): ExtractedValue {
-  const raw = toTrimmed(value, MAX_VALUE_LENGTH);
-  return { raw, parsed: raw ? parseNumericExpression(raw) : null };
-}
-
-function toConfidence(value: unknown): ReconcileConfidence {
-  return value === "high" || value === "medium" || value === "low" ? value : "low";
-}
-
-function toProblemType(value: unknown): ProblemType {
-  return typeof value === "string" && (PROBLEM_TYPES as readonly string[]).includes(value)
-    ? (value as ProblemType)
-    : "unknown";
-}
-
-function parsePassResponse(
-  raw: RawStructuredReadingResponse,
-  validQuestionNumbers: Set<number>,
-): Map<number, SinglePassReading> {
-  const entries = Array.isArray(raw.answers) ? raw.answers : [];
-  const result = new Map<number, SinglePassReading>();
-
-  for (const item of entries) {
-    if (typeof item !== "object" || item === null) continue;
-    const entry = item as RawStructuredReadingEntry;
-
-    const questionNumber = typeof entry.questionNumber === "number" ? entry.questionNumber : null;
-    // Never trust a reading for a question that isn't on this assessment — the
-    // same discipline the handwritten answer-index mapping already applies.
-    if (questionNumber === null || !validQuestionNumbers.has(questionNumber)) continue;
-
-    const variables: Record<string, ExtractedValue> = {};
-    if (entry.variables && typeof entry.variables === "object" && !Array.isArray(entry.variables)) {
-      for (const [name, value] of Object.entries(entry.variables as Record<string, unknown>).slice(0, MAX_VARIABLES)) {
-        const trimmedName = name.trim();
-        if (!trimmedName) continue;
-        const extracted = toExtractedValue(value);
-        if (extracted.raw) variables[trimmedName] = extracted;
-      }
-    }
-
-    const steps = Array.isArray(entry.steps)
-      ? entry.steps
-          .filter((step): step is string => typeof step === "string" && step.trim().length > 0)
-          .slice(0, MAX_STEPS)
-          .map((step) => step.trim().slice(0, MAX_STEP_LENGTH))
-      : [];
-
-    const transcription = toTrimmed(entry.transcription, MAX_TRANSCRIPTION_LENGTH);
-    const studentAnswer = toExtractedValue(entry.studentAnswer);
-
-    // A model that reports attempted:true but transcribed nothing has not
-    // actually found an answer — trust the content over the flag.
-    const attempted = entry.attempted === true && transcription.length > 0;
-
-    result.set(questionNumber, {
-      questionNumber,
-      attempted,
-      transcription,
-      problemType: toProblemType(entry.problemType),
-      steps,
-      variables,
-      studentAnswer: studentAnswer.raw ? studentAnswer : null,
-      structureConfidence: toConfidence(entry.structureConfidence),
-    });
-  }
-
-  return result;
-}
-
-async function readOnce(
-  pages: HandwrittenPageInput[],
+async function readPage(
+  page: HandwrittenPageInput,
+  pageIndex: number,
+  pageCount: number,
   questions: ReadingQuestion[],
   validQuestionNumbers: Set<number>,
-): Promise<Map<number, SinglePassReading>> {
+  variant: ReadingVariant,
+): Promise<PageSegment[]> {
   const userContent: ChatCompletionContentPart[] = [
     {
       type: "text",
       text: [
-        "Read the following handwritten answer-sheet pages, in order.",
+        `This is page ${pageIndex + 1} of ${pageCount} of the answer sheet.`,
         "",
         "The questions on this assessment are:",
         buildQuestionList(questions),
       ].join("\n"),
     },
-    ...pages.map(
-      (page): ChatCompletionContentPart => ({
-        type: "image_url",
-        image_url: { url: `data:${page.mimeType};base64,${page.buffer.toString("base64")}` },
-      }),
-    ),
+    { type: "image_url", image_url: { url: `data:${page.mimeType};base64,${page.buffer.toString("base64")}` } },
   ];
 
-  const raw = await callStructuredAiWithContent<RawStructuredReadingResponse>({
+  const raw = await callStructuredAiWithContent<unknown>({
     model: READ_MODEL,
-    systemPrompt: buildSystemPrompt(),
+    systemPrompt: buildPageSystemPrompt(variant),
     userContent,
     temperature: 0.1,
     maxAttempts: 2,
-    // Generous: this returns a full transcription, steps and variables for
-    // every question on the paper at once, and a truncated response would fail
-    // to parse and lose the whole read.
-    maxTokens: 8000,
+    maxTokens: MAX_TOKENS_PER_PAGE,
     stage: "STRUCTURED_READING",
   });
+  return parsePageResponse(raw, validQuestionNumbers);
+}
 
-  return parsePassResponse(raw, validQuestionNumbers);
+async function mapWithConcurrency<T, R>(items: T[], limit: number, work: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const index = next++;
+      results[index] = await work(items[index], index);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+/** One complete pass over every page, stitched by question. Fails if any page cannot be read: a pass with a missing page would look like a student who skipped it. */
+async function readPass(
+  pages: HandwrittenPageInput[],
+  questions: ReadingQuestion[],
+  validQuestionNumbers: Set<number>,
+  variant: ReadingVariant,
+): Promise<Map<number, StitchedReading>> {
+  const perPage = await mapWithConcurrency(pages, PAGE_CONCURRENCY, (page, index) =>
+    readPage(page, index, pages.length, questions, validQuestionNumbers, variant),
+  );
+  return stitchPass(perPage, validQuestionNumbers);
 }
 
 /** Prefers the read that found an answer at all, then the fuller transcription. */
-function pickPreferred(a: SinglePassReading, b: SinglePassReading): SinglePassReading {
+function pickPreferred(a: StitchedReading, b: StitchedReading): StitchedReading {
   if (a.attempted !== b.attempted) return a.attempted ? a : b;
   return a.transcription.length >= b.transcription.length ? a : b;
 }
@@ -228,19 +151,19 @@ export async function readStructuredAnswers(
 
   const validQuestionNumbers = new Set(questions.map((q) => q.questionNumber));
 
+  // The two passes are worded differently on purpose: identical prompts to the same model make the same
+  // mistakes together, which agreement between them cannot catch.
   const [passA, passB] = await Promise.allSettled([
-    readOnce(pages, questions, validQuestionNumbers),
-    readOnce(pages, questions, validQuestionNumbers),
+    readPass(pages, questions, validQuestionNumbers, "top-down"),
+    readPass(pages, questions, validQuestionNumbers, "marker-first"),
   ]);
 
   if (passA.status === "rejected" && passB.status === "rejected") {
-    throw passA.reason instanceof Error
-      ? passA.reason
-      : new Error("Both structured reading passes failed.");
+    throw passA.reason instanceof Error ? passA.reason : new Error("Both structured reading passes failed.");
   }
 
-  const readingsA = passA.status === "fulfilled" ? passA.value : new Map<number, SinglePassReading>();
-  const readingsB = passB.status === "fulfilled" ? passB.value : new Map<number, SinglePassReading>();
+  const readingsA = passA.status === "fulfilled" ? passA.value : new Map<number, StitchedReading>();
+  const readingsB = passB.status === "fulfilled" ? passB.value : new Map<number, StitchedReading>();
 
   const reconciled = reconcileByKey(readingsA, readingsB, (value) => value.transcription, pickPreferred);
 
@@ -258,8 +181,8 @@ export async function readStructuredAnswers(
 
 function toReconciledReading(
   questionNumber: number,
-  entry: ReconciledEntry<SinglePassReading>,
-  other: SinglePassReading | null,
+  entry: ReconciledEntry<StitchedReading>,
+  other: StitchedReading | null,
 ): ReconciledReading {
   const { value } = entry;
   return {
@@ -273,5 +196,10 @@ function toReconciledReading(
     variables: value.variables,
     studentAnswer: value.studentAnswer,
     structureConfidence: value.structureConfidence,
+    segments: value.segments,
+    // A diagram, a second language or two live attempts seen by EITHER pass is enough to ask a teacher.
+    containsDiagram: value.containsDiagram || (other?.containsDiagram ?? false),
+    languages: [...new Set([...value.languages, ...(other?.languages ?? [])])],
+    conflictingAttempts: value.conflictingAttempts || (other?.conflictingAttempts ?? false),
   };
 }

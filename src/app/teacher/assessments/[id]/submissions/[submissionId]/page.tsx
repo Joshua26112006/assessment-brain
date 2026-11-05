@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireTeacherSession } from "@/lib/require-teacher";
 import { getOwnedAssessmentOrNotFound } from "@/lib/assessment-ownership";
-import { loadSubmissionReview, totalFor, type ReviewAnswerRow } from "@/lib/assessment/markRelease";
+import { loadSubmissionReview, readingSegmentsOf, totalFor, type ReviewAnswerRow } from "@/lib/assessment/markRelease";
 import { labelOf } from "@/lib/questions/labels";
 import { paperTotals } from "@/lib/questions/paperScore";
 import { parseAnnotationResult, parseGradingResult } from "@/lib/pipeline/parseResults";
@@ -304,6 +304,27 @@ function AnswerCard({
                 {response.studentAnswerText || <span className="italic text-subtle">Nothing was read for this answer.</span>}
               </p>
             </div>
+
+            {readingSegmentsOf(response.correctionResult).some((segment) => segment.status !== "active" || segment.page > 1) && (
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted">What was read, piece by piece</p>
+                <p className="mt-1 text-xs text-subtle">
+                  Crossed-out work that was replaced, and rough work, are shown greyed and were not marked.
+                </p>
+                <ul className="mt-2 flex flex-col gap-1.5 text-sm">
+                  {readingSegmentsOf(response.correctionResult).map((segment, index) => (
+                    <li key={index} className={segment.marked ? "" : "text-subtle line-through decoration-subtle"}>
+                      <span className="mr-2 text-xs text-muted no-underline">
+                        p.{segment.page}
+                        {segment.status === "struck" ? (segment.marked ? " · crossed out, no replacement (marked)" : " · crossed out (not marked)") : ""}
+                        {segment.status === "rough" ? " · rough work (not marked)" : ""}
+                      </span>
+                      <span className="whitespace-pre-wrap">{segment.text}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             {response.marking && response.marking.criteria.length > 0 && (
               <div>

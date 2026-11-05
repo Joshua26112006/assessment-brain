@@ -46,6 +46,8 @@ export interface CriterionScoringInput {
   /** The deterministic comparison, used as established facts for the model. Null when not run. */
   comparison: ComparisonResult | null;
   reading: ReconciledReading;
+  /** Reasons a teacher should check this answer that come from routing (an essay, a diagram, two attempts). */
+  extraReasons?: string[];
 }
 
 interface Decided {
@@ -279,6 +281,7 @@ export async function scoreByCriteria(input: CriterionScoringInput): Promise<Que
     undecidedFinalAnswer: decided.undecidedFinalAnswer,
   });
   if (outOfRange) reasons.unshift("The marking produced a mark outside the question's marks. Please set the mark yourself.");
+  for (const reason of input.extraReasons ?? []) if (!reasons.includes(reason)) reasons.push(reason);
 
   return {
     awardedMarks: Math.min(Math.max(0, awardedMarks), input.maximumMarks),

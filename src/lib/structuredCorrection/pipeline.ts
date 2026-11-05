@@ -46,6 +46,8 @@ export interface StructuredQuestionInput {
   partialCreditGuidance: string | null;
   structuredExpectation: StructuredExpectation | null;
   reading: ReconciledReading;
+  /** Reasons from routing (an essay, a diagram, two attempts) that always send the answer to the teacher. */
+  extraReasons?: string[];
 }
 
 export interface StructuredQuestionCorrection {
@@ -127,6 +129,7 @@ export async function correctStructuredQuestion(input: StructuredQuestionInput):
       structuredExpectation: input.structuredExpectation,
       comparison: initialComparison,
       reading: input.reading,
+      extraReasons: input.extraReasons,
     }),
     analyseErrors(input, initialComparison),
   ]);

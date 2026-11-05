@@ -49,6 +49,8 @@ const REVIEW_REASON_TEXT: Record<string, string> = {
   UNDETERMINED_GRADING: "No mark could be produced for this answer.",
   SCHEME_NOT_APPROVED: "The marking scheme for this question has not been approved, so nothing was marked.",
   SCHEME_CHANGED: "The marking scheme changed after this mark was accepted. Check that it still stands.",
+  DIAGRAM_TEACHER_ONLY: "This answer is a diagram or drawing, which the AI does not mark. Look at the page and give a mark.",
+  UNSUPPORTED_LANGUAGE: "This answer is not written in English, which is the only language the AI marks. Read the page and give a mark.",
   OTHER: "This answer was flagged for a teacher.",
 };
 

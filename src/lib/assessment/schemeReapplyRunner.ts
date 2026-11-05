@@ -1,18 +1,20 @@
 import { prisma } from "@/lib/prisma";
 import { runPipelineForQuestionResponse } from "@/lib/assessment/pipeline";
 import { reapplyScheme } from "@/lib/assessment/schemeReapply";
-import { hasCheckableRubric, runStructuredCorrectionForSubmission } from "@/lib/structuredCorrection/submission";
+import { markExactKeyAnswers } from "@/lib/assessment/exactKeyMarking";
+import { runStructuredCorrectionForSubmission } from "@/lib/structuredCorrection/submission";
 
 /**
- * Marks again a submission's waiting answers, through the same route a new
- * submission would take (src/lib/handwritten/evaluation.ts): the structured
- * route when the assessment has checkable rubrics, the checkpoint pipeline otherwise.
+ * Marks again a submission's waiting answers, through the same route a new submission would take:
+ * a handwritten submission (it has photographed pages) goes through exact-answer marking and then the
+ * page-by-page criteria marking (src/lib/handwritten/evaluation.ts); a typed submission goes through the
+ * per-question checkpoint pipeline it always has.
  */
 async function runSubmissionAgain(submissionId: string): Promise<void> {
-  const submission = await prisma.submission.findUnique({ where: { id: submissionId }, select: { assessmentId: true } });
-  if (!submission) return;
+  const handwritten = (await prisma.answerSheetPage.count({ where: { submissionId } })) > 0;
 
-  if (await hasCheckableRubric(submission.assessmentId)) {
+  if (handwritten) {
+    await markExactKeyAnswers(submissionId);
     await runStructuredCorrectionForSubmission(submissionId);
     return;
   }

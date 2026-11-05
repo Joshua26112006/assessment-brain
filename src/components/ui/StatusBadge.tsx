@@ -226,6 +226,10 @@ export function reviewReasonBadge(reason: string): BadgeDescriptor {
       return { label: "Scheme not approved", tone: "warning" };
     case "SCHEME_CHANGED":
       return { label: "Scheme changed", tone: "warning" };
+    case "DIAGRAM_TEACHER_ONLY":
+      return { label: "You mark this", tone: "warning" };
+    case "UNSUPPORTED_LANGUAGE":
+      return { label: "Not in English", tone: "warning" };
     case "INVALID_ANSWER_SHEET":
       return { label: "Not a valid answer sheet", tone: "danger" };
     default:
@@ -242,6 +246,8 @@ export const REVIEW_REASON_DESCRIPTION: Record<string, string> = {
   AMBIGUOUS_ANNOTATION: "Feedback generation was uncertain.",
   UNDETERMINED_GRADING: "A mark could not be determined automatically.",
   SCHEME_NOT_APPROVED: "This question's marking scheme has not been approved, so nothing was marked. Approve the scheme, or give a mark yourself.",
+  DIAGRAM_TEACHER_ONLY: "This answer is a diagram, graph or drawing. It is not marked by the AI: look at the page and give a mark.",
+  UNSUPPORTED_LANGUAGE: "This answer is not written in English, which is the only language the AI marks. Read the page and give a mark.",
   SCHEME_CHANGED: "The marking scheme changed after this mark was accepted or confirmed. The mark was not changed; decide whether it still stands (reopen the submission if it was confirmed).",
   INVALID_ANSWER_SHEET: "The uploaded pages don't look like a usable answer sheet for this assessment.",
   OTHER: "Flagged for your review.",

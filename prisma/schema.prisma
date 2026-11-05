@@ -849,6 +849,11 @@ enum ReviewReason {
   /// confirmed this answer's mark (decision D13). The mark was NOT changed; the
   /// teacher decides whether it still stands.
   SCHEME_CHANGED
+  /// The answer is a diagram, graph, construction, map or chemical structure
+  /// (decision D3): no AI mark is given, the teacher marks it from the page.
+  DIAGRAM_TEACHER_ONLY
+  /// The answer is not written in English (decision D7): no AI mark is given.
+  UNSUPPORTED_LANGUAGE
   /// The Phase 3.4B AI answer-sheet validation gate concluded a handwritten
   /// submission's uploaded pages are not usable as a genuine answer sheet
   /// (e.g. an unrelated document, all pages blank). Submission-scoped only
