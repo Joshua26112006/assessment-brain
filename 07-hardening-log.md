@@ -41,9 +41,9 @@ These are the items that are genuinely yours. Everything else in this log is eit
 
 After each: 16 users, 9 submissions, 48 responses, 0 mark events, 0 released — unchanged. Phases 4, 6 and 7 changed no schema.
 
-## Problems found while building: 50 (problems 5, 6, 8, 9, 42, 47, 48 and 49 were fixed in later batches)
+## Problems found while building: 51 (problems 5, 6, 8, 9, 42, 47, 48, 49 and 51 were fixed in later batches)
 
-**31 fixed · 15 accepted, decided or observations · 4 open (need you, or a later fix).** Problems 39 to 50 came from the final browser walkthrough, described in its own section below the deviations.
+**32 fixed · 15 accepted, decided or observations · 4 open (need you, or a later fix).** Problems 39 to 50 came from the final browser walkthrough, described in its own section below the deviations.
 
 ### Found when the Phase 1 screens were clicked through in a browser
 
@@ -165,9 +165,30 @@ Done in a throwaway copy of the app on a scratch database schema, never the live
 
 **Not clicked in the browser:** the paper-review screen for a paper with parts and choices (covered by unit tests and a real extraction run in Phase 3), and the "scheme changed after marking" flag.
 
+## Later batches (Nov 5 to 6)
+
+Done after the owner's answers, all with unit tests, all committed on the same branch.
+
+| What | Result |
+| --- | --- |
+| Intervals, ordered pairs and recurring decimals | `[1, 5)`, `(-inf, 3]` and `(2, 3)` are read and compared whole, in order, only when sure; a bar or dots over repeating digits, and the LaTeX forms a model may transcribe, are read as the value. A different kind of answer is never called wrong. |
+| Questions that point at a figure, graph or table | A "Mentions a figure" badge and a note on the card tell you to read that scheme carefully. Narrow on purpose: "draw a diagram of the heart" does not trigger it. The AI's own "missing reference" check still exists. |
+| Reply length cap | Every model call without its own limit used to ask for the model's whole 65,536-token output. Default is now 16,000; the whole-sheet read and the question-paper extraction ask for 32,000. |
+| Standard names for a quantity | `u` = `v0` = initial velocity and the other unambiguous school pairs are matched in code, added to what the scheme lists. Names that mean different things in different questions (d, Q, r) are left out. The drafter is also asked to list aliases for every quantity. The prompt change is not measured (no key). |
+| Browser check of the screens not yet clicked | Paper review with parts, a choice and an optional group; scheme settings; the alternative-method box; the feedback rule; the "With your teacher" wording; the "scheme changed" flag. All behaved as designed except problem 51. |
+
+### Found in that browser check
+
+| # | Problem | Status |
+| --- | --- | --- |
+| 51 | A paper with parts, a choice and an optional group said "13 marks total" (everything printed) instead of 9, and the readiness panel listed question numbers instead of labels. | **Fixed.** The total follows the paper's structure on every screen; the panel uses labels. A test covers both. |
+
+**Checked in the browser and fine:** approving a structured paper (numbers locked, structure explained, uncertain question marked "Please double-check"); the two number-format ticks and the rules showing only where they apply; the figure badge and note; the alternative-method opinion box and the flag; changing a mark with a comment (the student then sees only your comment, while an accepted answer still shows the AI feedback); "With your teacher" and nothing else before release; the "scheme changed" item in the review queue after editing a confirmed answer's scheme.
+
+**Still open from the owner's list:** diagram handling (deferred to a later talk), the OpenRouter key limit (#45), the temperature measurement (#38) and the json_schema test (#37) (both need the key), the real scripts (#34), and the branch review and merge.
 ## Not verified, and why
 
-- **The paper-review screen with parts and choices** and **"scheme changed" after marking** were not opened in a browser (see above).
+- (The paper-review screen and the "scheme changed" flag, listed here before, were opened in a browser in the later batches.)
 - **Real handwriting accuracy**: only synthetic clean-font sheets exist (problem 34).
 - **The 9 live submissions** were never re-marked with the new scheme and routes; nothing here touches them.
 - **Marked copy on real scans**: marker placement is tested on synthetic sheets and in unit tests; real photographs are untested.
