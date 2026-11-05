@@ -19,6 +19,11 @@ export function newFigureKey(assessmentId: string): string {
   return `${assessmentId}/${crypto.randomUUID()}.png`;
 }
 
+/** Where a diagram cropped from a student's sheet is kept: its own folder per submission. */
+export function newDiagramCropKey(submissionId: string): string {
+  return `submissions/${submissionId}/${crypto.randomUUID()}.png`;
+}
+
 export async function writeFigureFile(key: string, buffer: Buffer): Promise<void> {
   await storage.write(key, buffer);
 }

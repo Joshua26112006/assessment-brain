@@ -1,3 +1,4 @@
+import { detectAndStoreStudentDiagrams } from "@/lib/figures/diagramCropStore";
 import type { QuestionResponseStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { createReviewItemIfNeeded } from "@/lib/assessment/pipelineReviewItems";
@@ -407,6 +408,19 @@ export async function hasCheckableRubric(assessmentId: string): Promise<boolean>
   });
 }
 
+/**
+ * Finds and files the hand-drawn diagrams of a sheet (see figures/studentDiagramDetection.ts). It is a side record for
+ * the teacher and for diagram marking: whatever happens here, the answers are marked and parked exactly as before, so a
+ * failure is logged and nothing else.
+ */
+async function findDiagramsSafely(submissionId: string, assessmentId: string, flaggedPages: ReadonlySet<number>): Promise<void> {
+  try {
+    await detectAndStoreStudentDiagrams(submissionId, assessmentId, flaggedPages);
+  } catch (error) {
+    console.error("Finding the diagrams on the answer sheet failed:", error instanceof Error ? error.message : error);
+  }
+}
+
 export async function runStructuredCorrectionForSubmission(submissionId: string): Promise<void> {
   const submission = await prisma.submission.findUnique({
     where: { id: submissionId },
@@ -447,7 +461,11 @@ export async function runStructuredCorrectionForSubmission(submissionId: string)
     ),
   );
   const contexts = approved.filter((context) => !diagrams.includes(context));
-  if (contexts.length === 0) return;
+  const diagramPages = new Set(diagrams.flatMap((context) => context.sourcePages));
+  if (contexts.length === 0) {
+    if (diagrams.length > 0) await findDiagramsSafely(submissionId, submission.assessmentId, diagramPages);
+    return;
+  }
 
   let pages;
   let readings: Map<number, ReconciledReading>;
@@ -470,6 +488,14 @@ export async function runStructuredCorrectionForSubmission(submissionId: string)
     );
     return;
   }
+
+  // Drawings: on the pages where a diagram question's answer is, and on any page the reader says an answer has a drawing.
+  const drawingPages = new Set(diagramPages);
+  for (const reading of readings.values()) {
+    if (!reading.containsDiagram) continue;
+    for (const segment of reading.segments ?? []) drawingPages.add(segment.page);
+  }
+  if (diagrams.length > 0 || drawingPages.size > 0) await findDiagramsSafely(submissionId, submission.assessmentId, drawingPages);
 
   // The OTHER direction of the same disagreement: the reader found writing for a question the mapping step
   // gave no answer to. That writing may belong to another question (or the mapping missed it), so a teacher

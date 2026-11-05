@@ -552,6 +552,7 @@ enum SubmissionStatus {
 /// (assessmentId, studentId) enforces the current assumption of a single
 /// active submission per student per assessment.
 model Submission {
+  diagramCrops DiagramCrop[]
   id           String           @id @default(cuid())
   assessmentId String
   assessment   Assessment       @relation(fields: [assessmentId], references: [id], onDelete: Restrict)
@@ -1041,5 +1042,40 @@ model QuestionFigure {
   createdAt DateTime @default(now())
 
   @@index([assessmentId])
+  @@index([questionId])
+}
+
+// ---------------------------------------------------------------------------
+// DiagramCrop: a hand-drawn diagram found on a student's answer sheet
+// ---------------------------------------------------------------------------
+
+/// One diagram cropped from a student's page. Found by two independent methods (ink, and the reader model's
+/// opinion); `confident` is true only where both found it and agree on where it is. A diagram that follows no
+/// question marker has questionId null. The picture is a file under storage/question-figures/.
+model DiagramCrop {
+  id           String     @id @default(cuid())
+  submissionId String
+  submission   Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  /// The question whose marker most recently precedes it, if any.
+  questionId   String?
+
+  pageNumber Int
+  /// 0 to 1 fractions of the page.
+  boxLeft    Float
+  boxTop     Float
+  boxWidth   Float
+  boxHeight  Float
+
+  storageKey String @unique
+  widthPx    Int
+  heightPx   Int
+
+  confident    Boolean
+  foundByInk   Boolean
+  foundByModel Boolean
+
+  createdAt DateTime @default(now())
+
+  @@index([submissionId])
   @@index([questionId])
 }
