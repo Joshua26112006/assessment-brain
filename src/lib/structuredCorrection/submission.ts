@@ -146,6 +146,8 @@ async function loadQuestionContexts(
                 criteria: true,
                 followThrough: true,
                 noWorkingRule: true,
+                acceptPercent: true,
+                decimalComma: true,
                 acceptedAlternatives: true,
               },
             },

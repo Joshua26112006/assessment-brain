@@ -58,6 +58,8 @@ export default async function AssessmentDetailPage({
                     criteria: scheme.criteria,
                     followThrough: scheme.followThrough,
                     noWorkingRule: scheme.noWorkingRule,
+                    acceptPercent: scheme.numberFormats?.acceptPercent === true,
+                    decimalComma: scheme.numberFormats?.decimalComma === true,
                   };
                 })(),
               }

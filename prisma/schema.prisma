@@ -472,6 +472,12 @@ model RubricVersion {
   /// the school-wide default.
   noWorkingRule NoWorkingRule?
 
+  /// A percentage answer ("40%") is read as a fraction (0.4) for this question. Off unless the teacher ticks it.
+  acceptPercent Boolean @default(false)
+
+  /// "2,5" is read as 2.5 for this question. Off unless the teacher ticks it.
+  decimalComma Boolean @default(false)
+
   /// Other valid methods or answers the scheme accepts, as a JSON string array.
   acceptedAlternatives Json?
 

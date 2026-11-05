@@ -50,8 +50,18 @@ export type NoWorkingRule = (typeof NO_WORKING_RULES)[number];
 export const DEFAULT_FOLLOW_THROUGH: FollowThrough = "ALLOWED";
 export const DEFAULT_NO_WORKING_RULE: NoWorkingRule = "FINAL_ANSWER_ONLY";
 
+/** Which unusual number forms this question's scheme reads (owner decision, Nov 5). Both are off unless ticked. */
+export interface NumberFormats {
+  /** "40%" is read as 0.4. */
+  acceptPercent: boolean;
+  /** "2,5" is read as 2.5. */
+  decimalComma: boolean;
+}
+
 export interface Scheme {
   criteria: SchemeCriterion[];
+  /** Absent on a scheme built by hand in a test: read as both off. */
+  numberFormats?: NumberFormats;
   followThrough: FollowThrough;
   noWorkingRule: NoWorkingRule;
   acceptedAlternatives: string[];
@@ -71,6 +81,11 @@ export const ANSWER_KINDS: readonly CriterionKind[] = ["FINAL_ANSWER", "UNIT", "
 export function rulesApply(criteria: Array<{ kind: string }>): boolean {
   const kinds = new Set(criteria.map((criterion) => criterion.kind));
   return kinds.has("FINAL_ANSWER") && (kinds.has("STEP") || kinds.has("VALUE"));
+}
+
+/** Do the number-format ticks mean anything here? Only where an answer is a number the scheme can check: a value or a final answer. */
+export function numberFormatsApply(criteria: Array<{ kind: string }>): boolean {
+  return criteria.some((criterion) => criterion.kind === "FINAL_ANSWER" || criterion.kind === "VALUE");
 }
 
 export const MARK_GRANULARITY = 0.5;
@@ -194,6 +209,8 @@ export interface VersionLike {
   followThrough?: string | null;
   noWorkingRule?: string | null;
   acceptedAlternatives?: unknown;
+  acceptPercent?: boolean | null;
+  decimalComma?: boolean | null;
 }
 
 /** The scheme of a stored rubric version, deriving criteria from older checkpoints when none were stored. */
@@ -221,6 +238,7 @@ export function schemeOf(version: VersionLike, maximumMarks: number): Scheme {
     acceptedAlternatives: Array.isArray(version.acceptedAlternatives)
       ? version.acceptedAlternatives.filter((a): a is string => typeof a === "string")
       : [],
+    numberFormats: { acceptPercent: version.acceptPercent === true, decimalComma: version.decimalComma === true },
   };
 }
 

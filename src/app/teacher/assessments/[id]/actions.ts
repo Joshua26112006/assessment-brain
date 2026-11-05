@@ -447,10 +447,12 @@ export async function saveSchemeRulesAction(
   formData: FormData,
 ): Promise<ActionState> {
   const session = await requireTeacherSession();
-  const followThrough = String(formData.get("followThrough") ?? "");
-  const noWorkingRule = String(formData.get("noWorkingRule") ?? "");
-  if (!(FOLLOW_THROUGH_RULES as readonly string[]).includes(followThrough)) return { error: "Choose a follow-through rule." };
-  if (!(NO_WORKING_RULES as readonly string[]).includes(noWorkingRule)) return { error: "Choose what a correct answer with no working earns." };
+  // The form shows only the settings that apply to this kind of question; a setting it did not show is left as it was.
+  const followThrough = formData.get("followThrough") === null ? null : String(formData.get("followThrough"));
+  const noWorkingRule = formData.get("noWorkingRule") === null ? null : String(formData.get("noWorkingRule"));
+  if (followThrough !== null && !(FOLLOW_THROUGH_RULES as readonly string[]).includes(followThrough)) return { error: "Choose a follow-through rule." };
+  if (noWorkingRule !== null && !(NO_WORKING_RULES as readonly string[]).includes(noWorkingRule)) return { error: "Choose what a correct answer with no working earns." };
+  const formatsShown = formData.get("formatsShown") === "1";
 
   const question = await getOwnedQuestion(questionId, session.user.id);
   if (!question) return { error: "Question not found." };
@@ -458,7 +460,11 @@ export async function saveSchemeRulesAction(
   const saved = await saveSchemeVersion({
     teacherId: session.user.id,
     questionId,
-    changes: { followThrough: followThrough as never, noWorkingRule: noWorkingRule as never },
+    changes: {
+      ...(followThrough !== null ? { followThrough: followThrough as never } : {}),
+      ...(noWorkingRule !== null ? { noWorkingRule: noWorkingRule as never } : {}),
+      ...(formatsShown ? { acceptPercent: formData.get("acceptPercent") === "on", decimalComma: formData.get("decimalComma") === "on" } : {}),
+    },
   });
   if (!saved.ok) return { error: saved.message };
 

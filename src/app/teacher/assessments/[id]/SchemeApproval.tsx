@@ -3,7 +3,7 @@
 import { useActionState } from "react";
 import StatusBadge from "@/components/ui/StatusBadge";
 import { buttonClass } from "@/components/ui/styles";
-import { rulesApply } from "@/lib/scheme/criteria";
+import { numberFormatsApply, rulesApply } from "@/lib/scheme/criteria";
 import { approveSchemeAction, saveSchemeRulesAction, type ActionState } from "./actions";
 
 export type SchemeCriterionView = {
@@ -49,12 +49,16 @@ export default function SchemeApproval({
   criteria,
   followThrough,
   noWorkingRule,
+  acceptPercent,
+  decimalComma,
 }: {
   questionId: string;
   approved: boolean;
   criteria: SchemeCriterionView[];
   followThrough: string;
   noWorkingRule: string;
+  acceptPercent: boolean;
+  decimalComma: boolean;
 }) {
   const [approveState, approveAction, approving] = useActionState(approveSchemeAction.bind(null, questionId), initial);
   const [rulesState, rulesAction, savingRules] = useActionState(saveSchemeRulesAction.bind(null, questionId), initial);
@@ -89,14 +93,15 @@ export default function SchemeApproval({
         ))}
       </ol>
 
-      {!rulesApply(criteria) && (
+      {!rulesApply(criteria) && !numberFormatsApply(criteria) && (
         <p className="mt-4 border-t border-line pt-3 text-xs text-muted">
           Follow-through and &ldquo;correct answer with no working&rdquo; do not apply to this kind of question, so there is nothing to set.
         </p>
       )}
 
-      {rulesApply(criteria) && (
+      {(rulesApply(criteria) || numberFormatsApply(criteria)) && (
       <form action={rulesAction} className="mt-4 grid gap-3 border-t border-line pt-3 sm:grid-cols-2">
+        {rulesApply(criteria) && (
         <label className="flex flex-col gap-1 text-xs font-medium text-muted">
           Follow-through
           <select name="followThrough" defaultValue={followThrough} className="rounded-md border border-line bg-surface p-2 text-sm text-foreground">
@@ -107,6 +112,8 @@ export default function SchemeApproval({
             ))}
           </select>
         </label>
+        )}
+        {rulesApply(criteria) && (
         <label className="flex flex-col gap-1 text-xs font-medium text-muted">
           A correct answer with no working earns
           <select name="noWorkingRule" defaultValue={noWorkingRule} className="rounded-md border border-line bg-surface p-2 text-sm text-foreground">
@@ -117,6 +124,26 @@ export default function SchemeApproval({
             ))}
           </select>
         </label>
+        )}
+        {numberFormatsApply(criteria) && (
+          <div className="flex flex-col gap-1.5 text-sm sm:col-span-2">
+            <input type="hidden" name="formatsShown" value="1" />
+            <label className="flex items-start gap-2">
+              <input type="checkbox" name="acceptPercent" defaultChecked={acceptPercent} className="mt-1" />
+              <span>
+                Percentage answers are accepted
+                <span className="block text-xs text-muted">A written 40% is read as 0.4. Leave off if students should write a plain number.</span>
+              </span>
+            </label>
+            <label className="flex items-start gap-2">
+              <input type="checkbox" name="decimalComma" defaultChecked={decimalComma} className="mt-1" />
+              <span>
+                A decimal comma is accepted
+                <span className="block text-xs text-muted">A written 2,5 is read as 2.5. Leave off if a comma could mean a list or a thousands separator.</span>
+              </span>
+            </label>
+          </div>
+        )}
         <div className="sm:col-span-2">
           <button type="submit" disabled={savingRules} className={buttonClass("secondary", "sm")}>
             {savingRules ? "Saving…" : "Save these rules"}

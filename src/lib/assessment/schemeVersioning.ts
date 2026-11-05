@@ -21,6 +21,8 @@ export interface VersionChanges {
   followThrough?: "ALLOWED" | "NOT_ALLOWED" | "METHOD_ONLY" | null;
   noWorkingRule?: "FINAL_ANSWER_ONLY" | "FULL_MARKS" | null;
   acceptedAlternatives?: string[] | null;
+  acceptPercent?: boolean;
+  decimalComma?: boolean;
 }
 
 export type SaveVersionResult = { ok: true; versionId: string } | { ok: false; message: string };
@@ -60,6 +62,8 @@ export async function saveSchemeVersion(input: {
         followThrough: (pick("followThrough", base?.followThrough) as VersionChanges["followThrough"]) ?? null,
         noWorkingRule: (pick("noWorkingRule", base?.noWorkingRule) as VersionChanges["noWorkingRule"]) ?? null,
         acceptedAlternatives: asJson(pick("acceptedAlternatives", base?.acceptedAlternatives)),
+        acceptPercent: pick("acceptPercent", base?.acceptPercent) === true,
+        decimalComma: pick("decimalComma", base?.decimalComma) === true,
         // Carried forward untouched: the editor never knew about these.
         expectedAnswer: base?.expectedAnswer ?? null,
         partialCreditGuidance: base?.partialCreditGuidance ?? null,

@@ -37,12 +37,13 @@ These are the items that are genuinely yours. Everything else in this log is eit
 | `20261105100000_add_scheme_criteria_and_approval` | 2 | scheme criteria, follow-through and no-working rules, teacher approval on a rubric version, review reasons `SCHEME_NOT_APPROVED`, `SCHEME_CHANGED` | Nov 5 |
 | `20261105110000_add_question_labels_and_tree` | 3 | question label and answer type, the paper's structure on the assessment | Nov 5 |
 | `20261105120000_add_review_reasons_for_diagrams_and_language` | 5 | review reasons `DIAGRAM_TEACHER_ONLY`, `UNSUPPORTED_LANGUAGE` | Nov 5 |
+| `20261105130000_add_number_format_settings` | 7 | two per-question ticks on a rubric version (percentage answers, decimal comma), both default off | Nov 5 |
 
 After each: 16 users, 9 submissions, 48 responses, 0 mark events, 0 released — unchanged. Phases 4, 6 and 7 changed no schema.
 
 ## Problems found while building: 50 (problems 5, 6, 8, 9, 42, 47, 48 and 49 were fixed in later batches)
 
-**30 fixed · 15 accepted, decided or observations · 5 open (need you, or a later fix).** Problems 39 to 50 came from the final browser walkthrough, described in its own section below the deviations.
+**31 fixed · 15 accepted, decided or observations · 4 open (need you, or a later fix).** Problems 39 to 50 came from the final browser walkthrough, described in its own section below the deviations.
 
 ### Found when the Phase 1 screens were clicked through in a browser
 
@@ -110,7 +111,7 @@ After each: 16 users, 9 submissions, 48 responses, 0 mark events, 0 released —
 | # | Problem | Status |
 | --- | --- | --- |
 | 32 | `4x` and `2e` were read as 4 and 2. | **Fixed.** |
-| 33 | Percent and decimal-comma answers are read only when asked for, but no per-question setting stores that yet, so such answers stay "cannot read" and go to a person. | **Open — decision 7.** |
+| 33 | Percent and decimal-comma answers are read only when asked for, but no per-question setting stores that yet, so such answers stay "cannot read" and go to a person. | **Fixed (owner decision, Nov 5).** Each calculation question's scheme has two ticks, "percentage answers accepted" (40% is read as 0.4) and "a decimal comma is accepted" (2,5 is read as 2.5). Both are off by default and apply to the student's value and the key. |
 | 34 | There are no real double-marked scripts, so the launch numbers cannot be measured; `metrics.ts` has run only on synthetic sheets. | **Blocked on you — decision 6.** |
 | 35 | The plan asks for the full evaluation script 3 times on six papers. I ran the 5-repeat stability check and the metrics script (3 repeats, 2 papers) instead. | **Accepted.** |
 | 36 | Flag rate 40 to 50% on the synthetic sheets, above the plan's 30% example bar. | **Decided: keep.** See 21. Revisit once real double-marked scripts show how often the AI is right. |

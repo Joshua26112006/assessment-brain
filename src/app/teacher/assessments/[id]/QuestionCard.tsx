@@ -38,6 +38,8 @@ export type QuestionCardData = {
       criteria: SchemeCriterionView[];
       followThrough: string;
       noWorkingRule: string;
+      acceptPercent: boolean;
+      decimalComma: boolean;
     } | null;
     versionCount: number;
   } | null;
@@ -153,6 +155,8 @@ export default function QuestionCard({ question }: { question: QuestionCardData 
                   criteria={activeVersion.criteria}
                   followThrough={activeVersion.followThrough}
                   noWorkingRule={activeVersion.noWorkingRule}
+                  acceptPercent={activeVersion.acceptPercent}
+                  decimalComma={activeVersion.decimalComma}
                 />
 
                 <div className="mt-3">

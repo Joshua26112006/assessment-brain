@@ -72,6 +72,15 @@ function buildQuestionList(questions: ReadingQuestion[]): string {
   return questions.map((q) => questionPromptLine(q)).join("\n");
 }
 
+/**
+ * The reading model's temperature. 0.1 unless READING_TEMPERATURE says otherwise (a number from 0 to 2). It is switchable only so
+ * the setting can be measured (scripts/eval/readtemp.ts); production runs on the default until the owner decides.
+ */
+export function readingTemperature(): number {
+  const value = Number(process.env.READING_TEMPERATURE);
+  return process.env.READING_TEMPERATURE !== undefined && process.env.READING_TEMPERATURE !== "" && Number.isFinite(value) && value >= 0 && value <= 2 ? value : 0.1;
+}
+
 async function readPage(
   page: HandwrittenPageInput,
   pageIndex: number,
@@ -97,7 +106,7 @@ async function readPage(
     model: READ_MODEL,
     systemPrompt: buildPageSystemPrompt(variant),
     userContent,
-    temperature: 0.1,
+    temperature: readingTemperature(),
     maxAttempts: 2,
     maxTokens: MAX_TOKENS_PER_PAGE,
     stage: "STRUCTURED_READING",

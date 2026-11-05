@@ -6,6 +6,7 @@ import {
 } from "@/lib/structuredCorrection/explanationGenerator";
 import { scoreByCriteria } from "@/lib/structuredCorrection/criterionScoring";
 import { reconcileFindingsWithMarks } from "@/lib/structuredCorrection/findings";
+import { applyNumberFormats } from "@/lib/structuredCorrection/numberFormats";
 import { checkAlternativeMethod, methodCheckReason, needsMethodCheck } from "@/lib/structuredCorrection/alternativeMethod";
 import { hasWorking } from "@/lib/structuredCorrection/criterionScoring";
 import { explanationAgreesWithFinding, withoutUnsupportedErrors } from "@/lib/structuredCorrection/findingChecks";
@@ -121,7 +122,11 @@ async function analyseErrors(
   return { comparison, verification, explanations, mistakesWithheld: false };
 }
 
-export async function correctStructuredQuestion(input: StructuredQuestionInput): Promise<StructuredQuestionCorrection> {
+export async function correctStructuredQuestion(rawInput: StructuredQuestionInput): Promise<StructuredQuestionCorrection> {
+  // Values written in a form this question's scheme accepts (a percentage, a decimal comma) are read in that form first.
+  const formatted = applyNumberFormats(rawInput.reading, rawInput.structuredExpectation, rawInput.scheme.numberFormats);
+  const input: StructuredQuestionInput = { ...rawInput, reading: formatted.reading, structuredExpectation: formatted.expectation };
+
   // The comparison is deterministic and cheap, so it runs first: marking uses what it established
   // (the final answer, units) and does not have to guess it again.
   // A finding that quotes a value the student never wrote is dropped (decision D15), and so is any finding
