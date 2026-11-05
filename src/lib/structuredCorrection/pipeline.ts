@@ -4,7 +4,10 @@ import {
   buildUnverifiedExplanations,
   generateExplanations,
 } from "@/lib/structuredCorrection/explanationGenerator";
-import { scoreQuestion, type QuestionScore } from "@/lib/structuredCorrection/scoring";
+import { scoreByCriteria } from "@/lib/structuredCorrection/criterionScoring";
+import { reconcileFindingsWithMarks } from "@/lib/structuredCorrection/findings";
+import type { QuestionScore } from "@/lib/structuredCorrection/scoring";
+import type { Scheme } from "@/lib/scheme/criteria";
 import type {
   ComparisonResult,
   ErrorExplanation,
@@ -38,6 +41,8 @@ export interface StructuredQuestionInput {
   subject: string;
   expectedAnswer: string | null;
   markingCheckpoints: RubricMarkingCheckpoint[];
+  /** The teacher-approved marking scheme: criteria, follow-through and no-working rules (decisions D6 to D10). */
+  scheme: Scheme;
   partialCreditGuidance: string | null;
   structuredExpectation: StructuredExpectation | null;
   reading: ReconciledReading;
@@ -64,9 +69,8 @@ export interface StructuredQuestionCorrection {
 
 async function analyseErrors(
   input: StructuredQuestionInput,
+  comparison: ComparisonResult,
 ): Promise<{ comparison: ComparisonResult; verification: VerificationResult | null; explanations: ErrorExplanation[]; mistakesWithheld: boolean }> {
-  const comparison = compareReadingToRubric(input.reading, input.structuredExpectation);
-
   if (comparison.status !== "compared" || comparison.errors.length === 0) {
     return { comparison, verification: null, explanations: [], mistakesWithheld: false };
   }
@@ -108,17 +112,23 @@ async function analyseErrors(
 }
 
 export async function correctStructuredQuestion(input: StructuredQuestionInput): Promise<StructuredQuestionCorrection> {
+  // The comparison is deterministic and cheap, so it runs first: marking uses what it established
+  // (the final answer, units) and does not have to guess it again.
+  const initialComparison = compareReadingToRubric(input.reading, input.structuredExpectation);
+
   const [scoreOutcome, analysisOutcome] = await Promise.allSettled([
-    scoreQuestion({
+    scoreByCriteria({
       questionText: input.questionText,
       maximumMarks: input.maximumMarks,
       subject: input.subject,
       expectedAnswer: input.expectedAnswer,
-      markingCheckpoints: input.markingCheckpoints,
       partialCreditGuidance: input.partialCreditGuidance,
+      scheme: input.scheme,
+      structuredExpectation: input.structuredExpectation,
+      comparison: initialComparison,
       reading: input.reading,
     }),
-    analyseErrors(input),
+    analyseErrors(input, initialComparison),
   ]);
 
   // A failed error analysis must not cost the student their mark, and a failed
@@ -140,14 +150,27 @@ export async function correctStructuredQuestion(input: StructuredQuestionInput):
           mistakesWithheld: true,
         };
 
+  const score = scoreOutcome.status === "fulfilled" ? scoreOutcome.value : null;
+
+  // A mark and a mistake must not contradict each other: the marks decide what is shown.
+  const explanations = score
+    ? reconcileFindingsWithMarks({
+        explanations: analysis.explanations,
+        comparison: analysis.comparison,
+        marking: score.marking,
+        awardedMarks: score.awardedMarks,
+        maximumMarks: score.maximumMarks,
+      })
+    : analysis.explanations;
+
   return {
     questionId: input.questionId,
     questionNumber: input.questionNumber,
     reading: input.reading,
-    score: scoreOutcome.status === "fulfilled" ? scoreOutcome.value : null,
+    score,
     comparison: analysis.comparison,
     verification: analysis.verification,
-    explanations: analysis.explanations,
+    explanations,
     mistakesWithheld: analysis.mistakesWithheld,
   };
 }

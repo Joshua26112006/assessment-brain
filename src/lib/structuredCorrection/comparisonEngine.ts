@@ -312,6 +312,32 @@ function compareValue(
 }
 
 /**
+ * Whether the student's final answer is the key's, decided by code and only when it can be decided
+ * with confidence: `true` (it is), `false` (it is not), or `null` (it cannot be told — the key is not
+ * numeric, the answer is missing or not a number, the reading was in doubt or the two reading passes
+ * disagreed, or the student's unit makes the comparison meaningless). Null always means "ask a person
+ * or a model", never "wrong".
+ */
+export function finalAnswerVerdict(
+  reading: ReconciledReading,
+  expectation: StructuredExpectation | null,
+): boolean | null {
+  const key = expectation?.solvable ? expectation.correctAnswer : null;
+  if (!key || key.parsed === null) return null;
+  if (!reading.attempted || !reading.studentAnswer || reading.studentAnswer.parsed === null) return null;
+  if (reading.structureConfidence === "low" || reading.agreementConfidence === "low") return null;
+
+  const otherPass = reading.secondPass === undefined ? undefined : (reading.secondPass?.studentAnswer ?? null);
+  if (!confirmedBySecondPass(reading, reading.studentAnswer, otherPass)) return null;
+
+  const comparable = effectiveActual(key, reading.studentAnswer);
+  if (comparable === null) return null;
+  if (matchesExpected(key.parsed, comparable)) return true;
+  if (unitMayExplainDifference(key, reading.studentAnswer)) return null;
+  return false;
+}
+
+/**
  * True only when both values are genuinely numeric AND agree. Deliberately
  * distinct from compareValue returning null, which also covers "could not be
  * compared at all" — an unparseable answer is not evidence the student got it

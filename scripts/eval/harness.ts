@@ -8,12 +8,16 @@ import path from "node:path";
 const REPO = process.cwd();
 const SCRATCH = path.join(REPO, "scripts", "eval");
 
+// The key comes from the environment, or from a .env in the folder this is run from.
 const env: Record<string, string> = {};
-for (const line of fs.readFileSync(path.join(REPO, ".env"), "utf8").split(String.fromCharCode(10))) {
-  const m = line.match(/^([A-Z_]+)=(.*)$/);
-  if (m) env[m[1]] = m[2].trim().replace(/^"|"$/g, "");
+const envFile = path.join(REPO, ".env");
+if (fs.existsSync(envFile)) {
+  for (const line of fs.readFileSync(envFile, "utf8").split(String.fromCharCode(10))) {
+    const m = line.match(/^([A-Z_]+)=(.*)$/);
+    if (m) env[m[1]] = m[2].trim().replace(/^"|"$/g, "");
+  }
 }
-process.env.OPENROUTER_API_KEY = env.OPENROUTER_API_KEY;
+process.env.OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || env.OPENROUTER_API_KEY;
 process.env.DATABASE_URL = "postgresql://nobody:nobody@127.0.0.1:1/none";
 
 type Q = { n: number; marks: number; text: string; answer: string[]; truth: string };
@@ -25,6 +29,7 @@ async function main() {
   const { generateRubricWithAi } = await import("@/lib/rubricGeneration/ai");
   const { readStructuredAnswers } = await import("@/lib/structuredCorrection/structuredReading");
   const { correctStructuredQuestion } = await import("@/lib/structuredCorrection/pipeline");
+  const { schemeOf } = await import("@/lib/scheme/criteria");
   fs.mkdirSync(path.join(SCRATCH, "results"), { recursive: true });
 
   for (const paper of papers.filter((p) => only.length === 0 || only.includes(p.key))) {
@@ -68,6 +73,7 @@ async function main() {
           questionId: `q${q.n}`, questionNumber: q.n, questionText: q.text, maximumMarks: q.marks,
           subject: paper.subject, expectedAnswer: rubric.expectedAnswer,
           markingCheckpoints: rubric.markingCheckpoints, partialCreditGuidance: rubric.partialCreditGuidance,
+          scheme: schemeOf({ criteria: rubric.criteria, markingCheckpoints: rubric.markingCheckpoints }, q.marks),
           structuredExpectation: exp, reading,
         });
         return {
@@ -78,6 +84,9 @@ async function main() {
             structure: reading.structureConfidence,
           },
           awarded: c.score?.awardedMarks ?? null, feedback: c.score?.feedback?.slice(0, 220) ?? null,
+          runs: c.score?.marking?.runTotals ?? null, unsure: c.score?.marking?.unsure ?? null,
+          unsureReasons: c.score?.marking?.reasons ?? null,
+          criteria: c.score?.marking?.criteria.map((x) => `${x.kind} ${x.awarded}/${x.maxMarks}`) ?? null,
           comparison: c.comparison.status, errors: c.comparison.errors.map((e) => `${e.type}${e.variable ? `(${e.variable})` : ""}`),
           verification: c.verification?.status ?? null,
           explanations: c.explanations.map((x) => x.explanation.slice(0, 200)),

@@ -33,6 +33,11 @@ export interface AttentionInput {
   mappingUncertain: boolean;
   /** Reasons of review items still open against this response. */
   openReviewReasons: string[];
+  /**
+   * Why the marking itself is doubtful, in plain words: the three marking runs disagreed, the final answer is
+   * right but marks were withheld, no working was shown, and so on. Empty when the marking was steady.
+   */
+  markingReasons?: string[];
 }
 
 const REVIEW_REASON_TEXT: Record<string, string> = {
@@ -71,6 +76,7 @@ export function classifyAnswer(input: AttentionInput): AnswerAttention {
   for (const reason of input.openReviewReasons) {
     reasons.push(REVIEW_REASON_TEXT[reason] ?? REVIEW_REASON_TEXT.OTHER);
   }
+  for (const reason of input.markingReasons ?? []) reasons.push(reason);
   if (input.reading && (!isHigh(input.reading.agreementConfidence) || !isHigh(input.reading.structureConfidence))) {
     reasons.push("The handwriting was hard to read, so the transcription may be wrong.");
   }

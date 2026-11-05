@@ -2,6 +2,7 @@ import type { QuestionResponseStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { createReviewItemIfNeeded } from "@/lib/assessment/pipelineReviewItems";
 import { holdForUnapprovedScheme, mayMarkAgainst } from "@/lib/assessment/schemeGate";
+import { schemeOf, type Scheme } from "@/lib/scheme/criteria";
 import { loadOrderedAnswerSheetPages } from "@/lib/handwritten/pages";
 import { readStructuredAnswers } from "@/lib/structuredCorrection/structuredReading";
 import { correctStructuredQuestion, type StructuredQuestionCorrection } from "@/lib/structuredCorrection/pipeline";
@@ -38,6 +39,8 @@ interface QuestionContext {
   expectedAnswer: string | null;
   partialCreditGuidance: string | null;
   markingCheckpoints: RubricMarkingCheckpoint[];
+  /** The teacher-approved scheme: criteria, follow-through and no-working rules. */
+  scheme: Scheme;
   structuredExpectation: StructuredExpectation | null;
   rubricVersionId: string | null;
   /** A teacher has approved this question's scheme (decision D8). Nothing is marked against one that is not. */
@@ -121,6 +124,10 @@ async function loadQuestionContexts(submissionId: string, assessmentId: string):
                 markingCheckpoints: true,
                 structuredExpectation: true,
                 approvedAt: true,
+                criteria: true,
+                followThrough: true,
+                noWorkingRule: true,
+                acceptedAlternatives: true,
               },
             },
           },
@@ -155,6 +162,7 @@ async function loadQuestionContexts(submissionId: string, assessmentId: string):
         expectedAnswer: version?.expectedAnswer ?? null,
         partialCreditGuidance: version?.partialCreditGuidance ?? null,
         markingCheckpoints: (version?.markingCheckpoints as unknown as RubricMarkingCheckpoint[]) ?? [],
+        scheme: schemeOf(version ?? {}, Number(question.maximumMarks)),
         structuredExpectation: (version?.structuredExpectation as unknown as StructuredExpectation) ?? null,
         rubricVersionId: version?.id ?? null,
         schemeApproved: mayMarkAgainst(version),
@@ -208,6 +216,9 @@ async function persistCorrection(
           comparison: correction.comparison,
           verificationStatus: correction.verification?.status ?? null,
           explanationCount: correction.explanations.length,
+          // How the mark was reached, criterion by criterion, and whether a teacher should look
+          // and why (decision D2). The review screen shows this beside the mark.
+          marking: correction.score?.marking ?? null,
           // Stored so a teacher can keep or remove each one (decision D5); until
           // they do, none of them reaches the student's marked copy.
           findings: correction.explanations.map(
@@ -228,6 +239,20 @@ async function persistCorrection(
     });
     if (written.count === 0) return;
     if (correction.score) {
+      // Every run's own total is kept (append-only), so the median can always be re-derived and a
+      // disagreement between runs can be looked at later.
+      const marking = correction.score.marking;
+      for (const [index, total] of (marking?.runTotals ?? []).entries()) {
+        await tx.markEvent.create({
+          data: {
+            kind: "AI_RUN",
+            submissionId,
+            questionResponseId: context.responseId,
+            marks: total,
+            payload: { run: index + 1, of: marking?.runTotals.length ?? 1, model: marking?.model ?? null },
+          },
+        });
+      }
       await tx.markEvent.create({
         data: {
           kind: "AI_DRAFT",
@@ -239,6 +264,10 @@ async function persistCorrection(
             maximumMarks: context.maximumMarks,
             findings: correction.explanations.length,
             verificationStatus: correction.verification?.status ?? null,
+            method: marking ? "MEDIAN_OF_RUNS" : "SINGLE",
+            runTotals: marking?.runTotals ?? null,
+            spread: marking?.spread ?? null,
+            unsure: marking?.unsure ?? false,
           },
         },
       });
@@ -402,6 +431,7 @@ export async function runStructuredCorrectionForSubmission(submissionId: string)
         subject: submission.assessment.subject,
         expectedAnswer: context.expectedAnswer,
         markingCheckpoints: context.markingCheckpoints,
+        scheme: context.scheme,
         partialCreditGuidance: context.partialCreditGuidance,
         structuredExpectation: context.structuredExpectation,
         reading,

@@ -305,6 +305,34 @@ function AnswerCard({
               </p>
             </div>
 
+            {response.marking && response.marking.criteria.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted">How the marks were reached (AI draft)</p>
+                <p className="mt-1 text-xs text-subtle">
+                  {response.marking.runTotals.length > 1
+                    ? `Marked ${response.marking.runTotals.length} times: ${response.marking.runTotals.join(", ")}. The middle result is the draft mark.`
+                    : "Marked once."}{" "}
+                  The mark is always the sum of these parts of the marking scheme.
+                </p>
+                <ul className="mt-2 flex flex-col divide-y divide-line rounded-lg border border-line text-sm">
+                  {response.marking.criteria.map((criterion) => (
+                    <li key={criterion.id} className="flex flex-wrap items-baseline justify-between gap-2 px-3 py-2">
+                      <span className="min-w-0 flex-1">
+                        {criterion.description}
+                        {criterion.evidence ? (
+                          <span className="block text-xs text-muted">Evidence: “{criterion.evidence}”</span>
+                        ) : null}
+                        {criterion.note ? <span className="block text-xs text-warning">{criterion.note}</span> : null}
+                      </span>
+                      <span className={`shrink-0 text-xs font-semibold tabular-nums ${criterion.awarded >= criterion.maxMarks ? "text-success" : criterion.awarded > 0 ? "text-warning" : "text-danger"}`}>
+                        {criterion.awarded} / {criterion.maxMarks}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
             {aiFeedback && (
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wide text-muted">Why it was marked this way (AI draft)</p>

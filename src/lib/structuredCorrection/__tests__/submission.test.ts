@@ -330,6 +330,30 @@ describe("runStructuredCorrectionForSubmission — the audit trail starts with t
     });
   });
 
+  it("keeps every marking run as its own AI_RUN event, so the median can always be re-derived", async () => {
+    setUpSubmission([1]);
+    readSheet.mockResolvedValue(new Map([[1, reading(1)]]));
+    correct.mockImplementation(async (input) => ({
+      ...marked(input, 4),
+      score: {
+        awardedMarks: 4,
+        maximumMarks: 4,
+        feedback: "ok",
+        marking: { criteria: [], runTotals: [4, 3, 4], spread: 1, unsure: false, reasons: [], model: "judge-model" },
+      },
+    }));
+
+    await runStructuredCorrectionForSubmission(SUBMISSION);
+
+    const events = db.markEvent.create.mock.calls.map(([args]) => args.data as { kind: string; marks: number; payload: Record<string, unknown> });
+    expect(events.map((e) => [e.kind, e.marks])).toEqual([["AI_RUN", 4], ["AI_RUN", 3], ["AI_RUN", 4], ["AI_DRAFT", 4]]);
+    expect(events[0].payload).toMatchObject({ run: 1, of: 3, model: "judge-model" });
+    expect(events[3].payload).toMatchObject({ method: "MEDIAN_OF_RUNS", runTotals: [4, 3, 4], spread: 1 });
+    // The marking detail is stored with the answer so the teacher can see how the mark was reached.
+    const stored = db.questionResponse.updateMany.mock.calls[0][0].data as { correctionResult: { marking: { runTotals: number[] } } };
+    expect(stored.correctionResult.marking.runTotals).toEqual([4, 3, 4]);
+  });
+
   it("records no draft when marking produced no mark", async () => {
     setUpSubmission([1]);
     readSheet.mockResolvedValue(new Map([[1, reading(1)]]));

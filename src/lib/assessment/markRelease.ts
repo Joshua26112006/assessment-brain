@@ -16,6 +16,7 @@ import {
 import { ACTIONABLE_REVIEW_STATUSES } from "@/lib/review-scope";
 import { REVIEW_DECISION_CONTRACT_VERSION, type ReviewDecisionRecord } from "@/types/review";
 import type { GradingResult } from "@/types/pipeline";
+import type { MarkingDetail } from "@/lib/structuredCorrection/scoring";
 import type { StoredFinding } from "@/types/structuredCorrection";
 
 /**
@@ -81,8 +82,27 @@ export interface ReviewAnswerRow {
     sourcePages: number[];
     /** The AI's suggested findings, each marked kept or not by the teacher (none are kept until they say so). */
     findings: Array<StoredFinding & { kept: boolean }>;
+    /** How the AI reached its mark, criterion by criterion; null for an answer marked another way or not at all. */
+    marking: MarkingDetail | null;
   } | null;
   attention: AnswerAttention;
+}
+
+/** The marking detail stored with a response, validated; null when absent or not in the expected shape. */
+export function markingOf(correctionResult: unknown): MarkingDetail | null {
+  if (typeof correctionResult !== "object" || correctionResult === null) return null;
+  const marking = (correctionResult as { marking?: unknown }).marking;
+  if (typeof marking !== "object" || marking === null) return null;
+  const m = marking as Partial<MarkingDetail>;
+  if (!Array.isArray(m.criteria) || !Array.isArray(m.runTotals) || !Array.isArray(m.reasons)) return null;
+  return {
+    criteria: m.criteria.filter((c) => typeof c === "object" && c !== null && typeof (c as { id?: unknown }).id === "string"),
+    runTotals: m.runTotals.filter((t): t is number => typeof t === "number"),
+    spread: typeof m.spread === "number" ? m.spread : 0,
+    unsure: m.unsure === true,
+    reasons: m.reasons.filter((r): r is string => typeof r === "string"),
+    model: typeof m.model === "string" ? m.model : "",
+  };
 }
 
 /** Findings stored with a response's correction, or none for an older or non-structured result. */
@@ -181,6 +201,7 @@ export async function loadSubmissionReview(
         response.studentAnswer !== null &&
         (response.studentAnswer as { uncertain?: unknown }).uncertain === true,
       openReviewReasons: response.reviewItems.map((item) => item.reason),
+      markingReasons: markingOf(response.correctionResult)?.reasons ?? [],
     });
 
     return {
@@ -198,6 +219,7 @@ export async function loadSubmissionReview(
           const kept = keptFindingIds(response.annotationResult);
           return storedFindingsOf(response.correctionResult).map((finding) => ({ ...finding, kept: kept.has(finding.id) }));
         })(),
+        marking: markingOf(response.correctionResult),
       },
       attention,
     };

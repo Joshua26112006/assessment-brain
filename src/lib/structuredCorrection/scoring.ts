@@ -40,6 +40,31 @@ export interface QuestionScore {
   awardedMarks: number;
   maximumMarks: number;
   feedback: string;
+  /** How the mark was reached, when it was marked criterion by criterion (see criterionScoring.ts). */
+  marking?: MarkingDetail;
+}
+
+/** What a teacher is shown to understand, and check, a mark: the criteria, the runs, and why to look. */
+export interface MarkingDetail {
+  /** What each criterion earned in the run whose total is the awarded mark. */
+  criteria: Array<{
+    id: string;
+    kind: string;
+    description: string;
+    maxMarks: number;
+    awarded: number;
+    evidence?: string;
+    note?: string;
+  }>;
+  /** Every run's total, in the order they ran. */
+  runTotals: number[];
+  /** Highest total minus lowest. */
+  spread: number;
+  /** A teacher should check this answer, and why, in plain words. */
+  unsure: boolean;
+  reasons: string[];
+  /** The model that marked, for the audit record. */
+  model: string;
 }
 
 interface RawScore {

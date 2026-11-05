@@ -38,6 +38,7 @@ function row(number: number, overrides: Partial<NonNullable<ReviewAnswerRow["res
             awardedMarks: 3,
             sourcePages: [1],
             findings: [],
+            marking: null,
             ...overrides,
           },
     attention: { level: "SURE", reasons: [], needsMark: false, reviewed: true },
