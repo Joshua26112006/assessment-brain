@@ -117,6 +117,8 @@ function formatMarks(value: number): string {
 export interface QuestionMark {
   /** Vertical centre of the question's marker, as a 0-1 fraction of page height. */
   markerTop: number;
+  /** Left edge of the question's marker as a 0-1 fraction of page width, so the tick is drawn in the margin beside it, not over it. */
+  markerLeft?: number;
   column: AnswerColumn;
   awardedMarks: number;
   maximumMarks: number;
@@ -131,21 +133,20 @@ export interface OverlayInput {
   mistakes: BBox[];
   /** Rendered only on the first page, so a submission carries one visible total. */
   total: { awarded: number; maximum: number } | null;
+  /** Boxes of the writing and printing on the page (0-1 fractions), so the total can be put where it covers none of it. */
+  occupied?: BBox[];
 }
 
 export function buildOverlaySvg(input: OverlayInput): string {
   const { width, height } = input;
   const elements: string[] = [];
 
-  if (input.total) {
-    elements.push(drawTotal(width, input.total.awarded, input.total.maximum));
-  }
-
   const scoreX: Record<AnswerColumn, number> = {
     left: Math.round(width * 0.47) - 40,
     right: Math.round(width * 0.95) - 40,
     full: Math.round(width * 0.95) - 40,
   };
+
   const markStartX: Record<AnswerColumn, number> = {
     left: Math.round(width * 0.03),
     right: Math.round(width * 0.52),
@@ -157,10 +158,23 @@ export function buildOverlaySvg(input: OverlayInput): string {
     full: Math.round(width * 0.19),
   };
 
+  if (input.total) {
+    // The circled marks beside each answer are part of what the total must not cover.
+    const circles: BBox[] = input.questions.map((question) => ({
+      left: (scoreX[question.column] - 50) / width,
+      top: (Math.round(question.markerTop * height) - 36) / height,
+      width: 100 / width,
+      height: 72 / height,
+    }));
+    const glyphs: BBox[] = input.questions.map((question) => {
+      const { startX, endX } = markSpan(question, width, markStartX[question.column], markEndX[question.column]);
+      return { left: startX / width, top: (Math.round(question.markerTop * height) - 90) / height, width: (endX - startX) / width, height: 130 / height };
+    });
+    elements.push(drawTotal(width, height, input.total.awarded, input.total.maximum, [...(input.occupied ?? []), ...circles, ...glyphs]));
+  }
   for (const question of input.questions) {
     const y = Math.round(question.markerTop * height);
-    const startX = markStartX[question.column];
-    const endX = markEndX[question.column];
+    const { startX, endX } = markSpan(question, width, markStartX[question.column], markEndX[question.column]);
 
     if (question.awardedMarks >= question.maximumMarks) {
       elements.push(drawTick(startX, endX, y));
@@ -236,16 +250,15 @@ function drawCircledMarks(cx: number, cy: number, awarded: number): string {
  * same position regardless of where answers fall — overlapping some writing is
  * an accepted trade for a total that is always findable in the same place.
  */
-function drawTotal(width: number, awarded: number, maximum: number): string {
+function drawTotal(width: number, height: number, awarded: number, maximum: number, occupied: BBox[]): string {
   const awardedLabel = formatMarks(awarded);
   const maximumLabel = formatMarks(maximum);
   const digitHeight = 40;
   const widest = Math.max(digitsWidth(awardedLabel, digitHeight), digitsWidth(maximumLabel, digitHeight));
 
-  const cx = Math.round(width / 2);
-  const cy = 85;
   const rx = Math.max(55, widest / 2 + 30);
   const ry = 78;
+  const { cx, cy } = chooseTotalPosition({ width, height, rx, ry, cy: 85, occupied });
 
   return [
     `<ellipse cx="${cx}" cy="${cy}" rx="${rx.toFixed(1)}" ry="${ry}" stroke="${RED}" stroke-width="4" fill="none"/>`,
@@ -253,6 +266,59 @@ function drawTotal(width: number, awarded: number, maximum: number): string {
     drawDigits(awardedLabel, cx, cy - 32, digitHeight, RED),
     drawDigits(maximumLabel, cx, cy + 32, digitHeight, RED),
   ].join("\n");
+}
+
+/**
+ * Where a mark's tick or cross goes, horizontally. Beside the question's own marker, in the margin to its
+ * left, so it never lands on the question number; the old fixed span is used only when the margin is too
+ * narrow to hold a mark.
+ */
+export function markSpan(
+  question: { markerLeft?: number },
+  width: number,
+  fallbackStart: number,
+  fallbackEnd: number,
+): { startX: number; endX: number } {
+  if (question.markerLeft === undefined) return { startX: fallbackStart, endX: fallbackEnd };
+  const endX = Math.round(question.markerLeft * width) - 14;
+  const startX = Math.max(Math.round(width * 0.01), endX - Math.round(width * 0.1));
+  return endX - startX >= width * 0.04 ? { startX, endX } : { startX: fallbackStart, endX: fallbackEnd };
+}
+
+/**
+ * Where the total goes: the first spot where it covers no writing, printing, tick or circled mark. The
+ * top-right, top-middle and top-left of the page are tried first (a total belongs at the top); if the top
+ * is busy it slides down the right edge to the first clear spot; if nowhere is clear it takes the top spot
+ * it covers least.
+ */
+export function chooseTotalPosition(input: {
+  width: number;
+  height: number;
+  rx: number;
+  ry: number;
+  cy: number;
+  occupied: BBox[];
+}): { cx: number; cy: number } {
+  const { width, height, rx, ry, cy, occupied } = input;
+  const margin = 12;
+  const covered = (cx: number, centreY: number) => {
+    const left = cx - rx - margin;
+    const right = cx + rx + margin;
+    const top = centreY - ry - margin;
+    const bottom = centreY + ry + margin;
+    let area = 0;
+    for (const box of occupied) {
+      const w = Math.min(right, (box.left + box.width) * width) - Math.max(left, box.left * width);
+      const h = Math.min(bottom, (box.top + box.height) * height) - Math.max(top, box.top * height);
+      if (w > 0 && h > 0) area += w * h;
+    }
+    return area;
+  };
+  const rightX = width - rx - 40;
+  const topRow = [rightX, Math.round(width / 2), rx + 40].map((cx) => ({ cx, cy }));
+  for (const spot of topRow) if (covered(spot.cx, spot.cy) === 0) return spot;
+  for (let y = cy + 40; y <= height * 0.6; y += 40) if (covered(rightX, y) === 0) return { cx: rightX, cy: y };
+  return topRow.reduce((best, spot) => (covered(spot.cx, spot.cy) < covered(best.cx, best.cy) ? spot : best));
 }
 
 function drawMistakeRing(box: BBox, width: number, height: number): string {

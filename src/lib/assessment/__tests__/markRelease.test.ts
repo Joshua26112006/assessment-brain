@@ -93,6 +93,9 @@ const fake: any = {
     },
   },
   answerSheetPage: {
+    async findMany({ where }: any) {
+      return db.pages.filter((p) => p.submissionId === where.submissionId && p.annotatedStorageKey !== null).map((p) => ({ annotatedStorageKey: p.annotatedStorageKey }));
+    },
     async updateMany({ where, data }: any) {
       const matches = db.pages.filter((p) => p.submissionId === where.submissionId && p.annotatedStorageKey !== null);
       matches.forEach((p) => Object.assign(p, data));
@@ -109,6 +112,9 @@ const fake: any = {
 
 // vi.mock is hoisted above `fake`, so the client is looked up lazily, at call time.
 vi.mock("@/lib/prisma", () => ({ prisma: new Proxy({}, { get: (_target, property) => fake[property as string] }) }));
+
+const removedFiles: string[] = [];
+vi.mock("@/lib/storage/answerSheets", () => ({ removeAnnotatedAnswerSheetPage: async (key: string) => { removedFiles.push(key); } }));
 
 import {
   acceptAllSure,
@@ -505,6 +511,24 @@ describe("releaseSubmission", () => {
     await releaseSubmission({ teacherId: TEACHER, submissionId: "sub1" });
 
     expect(db.pages.map((p) => p.annotatedStorageKey)).toEqual([null, null]);
+  });
+
+  it("deletes the files of the copies it cleared, so none are left behind on disk", async () => {
+    removedFiles.length = 0;
+    await acceptAllSure({ teacherId: TEACHER, submissionId: "sub1" });
+    await confirmSubmission({ teacherId: TEACHER, submissionId: "sub1" });
+    const before = db.pages.map((p) => p.annotatedStorageKey).filter(Boolean);
+    expect(before.length).toBeGreaterThan(0);
+
+    await releaseSubmission({ teacherId: TEACHER, submissionId: "sub1" });
+
+    expect(removedFiles.sort()).toEqual([...before].sort());
+  });
+
+  it("deletes nothing when the release is refused", async () => {
+    removedFiles.length = 0;
+    await releaseSubmission({ teacherId: TEACHER, submissionId: "sub1" });
+    expect(removedFiles).toEqual([]);
   });
 
   it("leaves a marked-up copy alone when the release is refused", async () => {

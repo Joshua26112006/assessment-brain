@@ -4,7 +4,8 @@ import { useActionState } from "react";
 import { buttonClass, inputClass } from "@/components/ui/styles";
 import { submitSubmissionDecision, type ActionState } from "./actions";
 
-const initialState: ActionState = {};
+type StampedState = ActionState & { reviewKey?: string };
+const initialState: StampedState = {};
 
 export type SubmissionStage = "REVIEWING" | "CONFIRMED" | "RELEASED";
 
@@ -18,14 +19,20 @@ export default function SubmissionControls({
   submissionId,
   stage,
   sureLeft,
+  reviewKey,
 }: {
   submissionId: string;
   stage: SubmissionStage;
   /** Answers that are sure and not yet accepted. */
   sureLeft: number;
+  /** Changes whenever an answer is checked or re-marked: a refusal shown before that is out of date. */
+  reviewKey: string;
 }) {
-  const action = submitSubmissionDecision.bind(null, submissionId);
+  const decide = submitSubmissionDecision.bind(null, submissionId);
+  // Remember what the answers looked like when a refusal was shown, so it can be hidden once they change.
+  const action = async (previous: StampedState, formData: FormData): Promise<StampedState> => ({ ...(await decide(previous, formData)), reviewKey });
   const [state, formAction, isPending] = useActionState(action, initialState);
+  const refusalIsCurrent = state.reviewKey === reviewKey;
 
   return (
     <form action={formAction} className="flex flex-col gap-3">
@@ -69,7 +76,7 @@ export default function SubmissionControls({
         )}
       </div>
 
-      {state.error && (
+      {state.error && refusalIsCurrent && (
         <div role="alert" className="rounded-lg border border-danger-line bg-danger-soft px-3 py-2 text-sm text-danger">
           <p className="font-medium">{state.error}</p>
           {state.blockers && state.blockers.length > 0 && (

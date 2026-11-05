@@ -128,13 +128,26 @@ async function annotateOnePage(
 
   const questionMarks: QuestionMark[] = placements.map(({ question, marker }) => ({
     markerTop: marker.bbox.top + marker.bbox.height / 2,
+    markerLeft: marker.bbox.left,
     column: marker.column,
     awardedMarks: question.awardedMarks,
     maximumMarks: question.maximumMarks,
     overAttempt: question.overAttempt === true,
   }));
 
-  const svg = buildOverlaySvg({ width, height, questions: questionMarks, mistakes, total });
+  const svg = buildOverlaySvg({
+    width,
+    height,
+    questions: questionMarks,
+    mistakes,
+    total,
+    occupied: analysis.readingOrderWords.flatMap((word) => {
+      const box = word.Geometry?.BoundingBox;
+      return box && box.Left !== undefined && box.Top !== undefined && box.Width !== undefined && box.Height !== undefined
+        ? [{ left: box.Left, top: box.Top, width: box.Width, height: box.Height }]
+        : [];
+    }),
+  });
 
   const annotatedBuffer = await sharp(page.buffer)
     .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
@@ -147,6 +160,8 @@ async function annotateOnePage(
 
   await writeAnnotatedAnswerSheetPage(annotatedKey, annotatedBuffer);
 
+  const previous = await prisma.answerSheetPage.findUnique({ where: { id: page.pageId }, select: { annotatedStorageKey: true } });
+
   try {
     await prisma.answerSheetPage.update({
       where: { id: page.pageId },
@@ -157,6 +172,11 @@ async function annotateOnePage(
     // it — remove it rather than leaving an orphan behind.
     await removeAnnotatedAnswerSheetPage(annotatedKey);
     throw error;
+  }
+
+  // The copy this one replaces is not read any more.
+  if (previous?.annotatedStorageKey && previous.annotatedStorageKey !== annotatedKey) {
+    await removeAnnotatedAnswerSheetPage(previous.annotatedStorageKey);
   }
 
   return {

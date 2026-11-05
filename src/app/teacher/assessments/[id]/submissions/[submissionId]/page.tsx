@@ -153,7 +153,12 @@ export default async function ReviewSubmissionPage({
               </p>
             )}
             <div className="mt-4">
-              <SubmissionControls submissionId={submission.id} stage={stage} sureLeft={sureLeft} />
+              <SubmissionControls
+                submissionId={submission.id}
+                stage={stage}
+                sureLeft={sureLeft}
+                reviewKey={rows.map((row) => (row.attention.reviewed ? "1" : "0") + (row.response ? String(row.response.awardedMarks ?? "-") : "x")).join(",")}
+              />
             </div>
           </div>
           <ScoreDisplay awarded={awarded} maximum={maximum} pending={stage === "REVIEWING"} size="lg" />

@@ -1,5 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { removeAnnotatedAnswerSheetPage } from "@/lib/storage/answerSheets";
 import { labelOf } from "@/lib/questions/labels";
 import { paperTotals } from "@/lib/questions/paperScore";
 import { parseAnnotationResult, parseGradingResult } from "@/lib/pipeline/parseResults";
@@ -781,7 +782,8 @@ export type ReleaseResult = { ok: true; alreadyReleased: boolean } | MarkActionF
 
 /** Lets the student see this submission's marks, feedback and marked-up pages. Only ever after confirmation. */
 export async function releaseSubmission(input: { teacherId: string; submissionId: string }): Promise<ReleaseResult> {
-  return prisma.$transaction(async (tx): Promise<ReleaseResult> => {
+  const staleCopies: string[] = [];
+  const result = await prisma.$transaction(async (tx): Promise<ReleaseResult> => {
     const submission = await loadOwnedSubmission(tx, input.submissionId, input.teacherId);
     if (!submission) return notFound();
     if (!submission.confirmedAt) {
@@ -799,6 +801,11 @@ export async function releaseSubmission(input: { teacherId: string; submissionId
     // the marks. It is cleared in the same transaction as the release, so there
     // is no moment at which a student could be shown it; a fresh one is drawn
     // from the final marks straight afterwards (markedCopy.ts).
+    const stale = await tx.answerSheetPage.findMany({
+      where: { submissionId: submission.id, annotatedStorageKey: { not: null } },
+      select: { annotatedStorageKey: true },
+    });
+    staleCopies.push(...stale.flatMap((page) => (page.annotatedStorageKey ? [page.annotatedStorageKey] : [])));
     await tx.answerSheetPage.updateMany({
       where: { submissionId: submission.id, annotatedStorageKey: { not: null } },
       data: { annotatedStorageKey: null },
@@ -807,6 +814,11 @@ export async function releaseSubmission(input: { teacherId: string; submissionId
     await writeMarkEvent(tx, { kind: "SUBMISSION_RELEASED", submissionId: submission.id, actorId: input.teacherId });
     return { ok: true, alreadyReleased: false };
   });
+
+  // The files the cleared rows pointed at are of no use to anyone now; remove them once the release has committed.
+  // Best effort: a file that cannot be removed is only wasted disk, never a wrong page.
+  await Promise.all(staleCopies.map((key) => removeAnnotatedAnswerSheetPage(key)));
+  return result;
 }
 
 /** Takes a confirmed or released submission back to the teacher so its marks can change. The student stops seeing them at once. */

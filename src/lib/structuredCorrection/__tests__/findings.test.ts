@@ -48,3 +48,44 @@ describe("reconcileFindingsWithMarks", () => {
     expect(reconcileFindingsWithMarks({ ...base, explanations: [], marking: marking(true), awardedMarks: 3 })).toEqual([]);
   });
 });
+
+describe("a missing-step finding the marking already accepted", () => {
+  const missing = (id: string, variable: string, raw: string): ComparisonResult => ({
+    status: "compared",
+    matchedApproachLabel: null,
+    errors: [{ id, type: "MISSING_STEP", variable, expected: { raw, parsed: Number(raw) }, comparisonMethod: "presence_check", dependsOn: [] }] as never,
+    matchedVariableCount: 0,
+    totalExpectedVariableCount: 1,
+  });
+  const marked = (description: string, awarded: number): MarkingDetail => ({
+    criteria: [{ id: "c1", kind: "STEP", description, maxMarks: 0.5, awarded }, { id: "c2", kind: "FINAL_ANSWER", description: "answer", maxMarks: 0.5, awarded: 0 }],
+    runTotals: [0.5], spread: 0, unsure: false, reasons: [], model: "m",
+  });
+  const input = (description: string, awarded: number) => ({
+    comparison: missing("err_0", "theta", "0"),
+    explanations: [explanation("err_0")],
+    marking: marked(description, awarded),
+    awardedMarks: 0.5,
+    maximumMarks: 2,
+  });
+
+  it("is dropped when an awarded scheme item names its expected value", () => {
+    expect(reconcileFindingsWithMarks(input("Recognises that the angle between force and displacement is 0°.", 0.5))).toEqual([]);
+  });
+
+  it("is dropped when an awarded scheme item names its variable", () => {
+    expect(reconcileFindingsWithMarks(input("States the value of theta used.", 0.5))).toEqual([]);
+  });
+
+  it("stays when the scheme item that names it was not awarded", () => {
+    expect(reconcileFindingsWithMarks(input("Recognises that the angle between force and displacement is 0°.", 0))).toHaveLength(1);
+  });
+
+  it("stays when no awarded scheme item mentions it", () => {
+    expect(reconcileFindingsWithMarks(input("Writes the work formula.", 0.5))).toHaveLength(1);
+  });
+
+  it("does not take part of a number for the number (10 is not 0)", () => {
+    expect(reconcileFindingsWithMarks(input("Substitutes 10 for the force.", 0.5))).toHaveLength(1);
+  });
+});

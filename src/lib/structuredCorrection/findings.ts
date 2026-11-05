@@ -9,6 +9,8 @@ import type { ComparisonResult, ErrorExplanation } from "@/types/structuredCorre
  *   - Full marks: nothing is shown.
  *   - The final answer was awarded: no finding about the final answer is shown (a finding is about
  *     the final answer when its comparison error names no variable).
+ *   - A "you did not write X" finding is dropped when a scheme item that WAS awarded names X (its
+ *     variable, or its expected value as a whole word): the marking accepted that step.
  *
  * Everything else stays: a finding on a step that cost marks is exactly what a teacher needs to see,
  * and every finding is only a suggestion until the teacher keeps it (decision D5).
@@ -27,11 +29,40 @@ export function reconcileFindingsWithMarks(input: {
 
   if (awardedMarks >= maximumMarks) return [];
 
+  const awardedText = (marking?.criteria ?? []).filter((c) => c.awarded > 0).map((c) => wordsOf(c.description));
+  const acceptedMissing = new Set(
+    comparison.errors
+      .filter((error) => error.type === "MISSING_STEP" && awardedText.some((words) => mentions(words, error)))
+      .map((error) => error.id),
+  );
+  const remaining = acceptedMissing.size === 0 ? explanations : explanations.filter((e) => !acceptedMissing.has(e.errorId));
+  if (remaining.length === 0) return [];
+
   const finalAnswerAwarded = (marking?.criteria ?? []).some(
     (criterion) => criterion.kind === "FINAL_ANSWER" && criterion.awarded >= criterion.maxMarks,
   );
-  if (!finalAnswerAwarded) return explanations;
+  if (!finalAnswerAwarded) return remaining;
 
   const aboutFinalAnswer = new Set(comparison.errors.filter((error) => !error.variable).map((error) => error.id));
-  return explanations.filter((explanation) => !aboutFinalAnswer.has(explanation.errorId));
+  return remaining.filter((explanation) => !aboutFinalAnswer.has(explanation.errorId));
+}
+
+/** Lower-case words and numbers of a sentence, with units and degree signs left off numbers ("0°" is the word "0"). */
+function wordsOf(text: string): Set<string> {
+  return new Set(
+    text
+      .toLowerCase()
+      .replace(/°/g, " ")
+      .split(/[^\p{L}\p{N}.]+/u)
+      .map((word) => word.replace(/^\.+|\.+$/g, ""))
+      .filter(Boolean),
+  );
+}
+
+/** Does this scheme item name the quantity a missing-step finding is about: by its variable or by its expected value? */
+function mentions(words: Set<string>, error: ComparisonResult["errors"][number]): boolean {
+  const variable = error.variable?.toLowerCase().trim();
+  if (variable && words.has(variable)) return true;
+  const expected = error.expected?.raw ? wordsOf(error.expected.raw) : new Set<string>();
+  return [...expected].some((word) => /\d/.test(word) && words.has(word));
 }

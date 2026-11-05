@@ -183,6 +183,7 @@ export default async function SubmissionResultPage({
                 key={question.id}
                 label={labelOf(question)}
                 overAttempt={overAttempt}
+                awaitingRelease={visibleStatus === AWAITING_RELEASE}
                 questionText={question.questionText}
                 maximumMarks={Number(question.maximumMarks)}
                 response={response}
@@ -204,11 +205,14 @@ export default async function SubmissionResultPage({
 function QuestionResultCard({
   label,
   overAttempt,
+  awaitingRelease,
   questionText,
   maximumMarks,
   response,
 }: {
   label: string;
+  /** The teacher has not released this submission yet: nothing about this answer is shown but that it is theirs to mark. */
+  awaitingRelease: boolean;
   /** Answered, but a better alternative counts instead: shown with a * and left out of the total. */
   overAttempt: boolean;
   questionText: string;
@@ -224,7 +228,11 @@ function QuestionResultCard({
 }) {
   const grading = response ? parseGradingResult(response.gradingResult) : null;
   const isMarked = response?.status === "GRADED" && grading?.outcome === "FINAL";
-  const badge = response
+  const badge = awaitingRelease
+    ? response
+      ? { label: "With your teacher", tone: "info" as const }
+      : { label: "Not answered", tone: "neutral" as const }
+    : response
     ? questionResponseBadge(response.status, "student")
     : { label: "Not answered", tone: "neutral" as const };
 
@@ -266,9 +274,19 @@ function QuestionResultCard({
           </p>
         )}
 
-        <div className="mt-4">{renderOutcome(response)}</div>
+        <div className="mt-4">{awaitingRelease ? renderAwaitingRelease(response) : renderOutcome(response)}</div>
       </div>
     </article>
+  );
+}
+
+/** Before release: the same line for every answer, whatever its marking status, so nothing leaks early. */
+function renderAwaitingRelease(response: unknown) {
+  if (!response) return null;
+  return (
+    <p className="rounded-lg border border-line bg-surface-muted p-3 text-sm text-muted">
+      Your teacher is reviewing this answer. The mark will appear here when they release your results.
+    </p>
   );
 }
 
