@@ -45,3 +45,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# private working documents (kept locally, not published)
+06-correction-hardening-plan.md
+07-hardening-log.md
