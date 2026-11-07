@@ -368,15 +368,33 @@ export async function runPipelineForQuestionResponse(
 
     const finalStatus = gradingResult.outcome === "NEEDS_REVIEW" ? "NEEDS_REVIEW" : "GRADED";
 
-    await prisma.questionResponse.update({
-      where: { id: questionResponseId },
-      data: {
-        status: finalStatus,
-        correctionResult: persistedCorrectionResult as unknown as object,
-        annotationResult: persistedAnnotationResult as unknown as object,
-        gradingResult: gradingResult as unknown as object,
-      },
-    });
+    // The answer and the record of the AI's own mark are written together, so the history of every mark starts from
+    // what the AI actually decided, exactly as it does for answers marked by the structured flow.
+    await prisma.$transaction([
+      prisma.questionResponse.update({
+        where: { id: questionResponseId },
+        data: {
+          status: finalStatus,
+          correctionResult: persistedCorrectionResult as unknown as object,
+          annotationResult: persistedAnnotationResult as unknown as object,
+          gradingResult: gradingResult as unknown as object,
+        },
+      }),
+      prisma.markEvent.create({
+        data: {
+          kind: "AI_DRAFT",
+          submissionId: response.submissionId,
+          questionResponseId,
+          marks: gradingResult.awardedMarks,
+          payload: {
+            flow: "checkpoint",
+            maximumMarks: gradingResult.maximumMarks,
+            outcome: gradingResult.outcome,
+            evidenceSource,
+          },
+        },
+      }),
+    ]);
 
     if (finalStatus === "NEEDS_REVIEW") {
       await createReviewItemIfNeeded({
