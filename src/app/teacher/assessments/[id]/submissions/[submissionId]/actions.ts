@@ -15,7 +15,7 @@ import {
 } from "@/lib/assessment/markRelease";
 import { generateMarkedCopy } from "@/lib/assessment/markedCopy";
 import { removeTeacherCrop, saveTeacherCrop } from "@/lib/figures/diagramCropAdmin";
-import { redraftDiagramAnswer } from "@/lib/structuredCorrection/submission";
+import { redraftDiagramAnswer, redraftWithCorrectedReading } from "@/lib/structuredCorrection/submission";
 
 export type ActionState = { error?: string; blockers?: string[]; success?: string };
 
@@ -237,4 +237,18 @@ export async function redraftDiagramAction(submissionId: string, responseId: str
   if (!result.ok) return { error: result.message };
   refresh(submissionId);
   return { success: "Checked again. The new draft is shown below." };
+}
+
+/** The teacher corrects what was read from the handwriting; the answer is marked again from their text. */
+export async function correctReadingAction(
+  submissionId: string,
+  responseId: string,
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const session = await requireTeacherSession();
+  const result = await redraftWithCorrectedReading({ responseId, teacherId: session.user.id, text: text(formData, "text") });
+  if (!result.ok) return { error: result.message };
+  refresh(submissionId);
+  return { success: "Saved and marked again. The new draft is shown below." };
 }

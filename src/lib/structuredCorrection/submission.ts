@@ -8,6 +8,9 @@ import { holdForUnapprovedScheme, mayMarkAgainst } from "@/lib/assessment/scheme
 import { schemeOf, type Scheme } from "@/lib/scheme/criteria";
 import { answerTypeOf, type AnswerType } from "@/lib/questions/answerType";
 import { holdForTeacher } from "@/lib/assessment/holds";
+import { recordCorrectedText } from "@/lib/assessment/correctedReading";
+import { redraftExactKey } from "@/lib/assessment/exactKeyMarking";
+import { structureTranscription, MAX_CORRECTED_TEXT } from "@/lib/structuredCorrection/textReading";
 import { routeAnswer } from "@/lib/structuredCorrection/routing";
 import { loadOrderedAnswerSheetPages } from "@/lib/handwritten/pages";
 import { readStructuredAnswers } from "@/lib/structuredCorrection/structuredReading";
@@ -227,8 +230,10 @@ async function persistCorrection(
   correction: StructuredQuestionCorrection,
   assessmentId: string,
   submissionId: string,
-  redraft?: { teacherId: string },
+  redraft?: { teacherId: string; /** The answer text the teacher typed, stored in the same step as the new draft. */ correctedText?: string },
 ): Promise<boolean> {
+  // A re-mark that failed outright must not replace a mark the answer already has.
+  if (redraft && !correction.score) return false;
   const status = correction.score ? "GRADED" : "FAILED";
   let stored = false;
 
@@ -246,7 +251,7 @@ async function persistCorrection(
         select: { gradingResult: true, submission: { select: { confirmedAt: true } } },
       });
       if (!current || current.submission.confirmedAt || (current.gradingResult as { teacherReview?: unknown } | null)?.teacherReview) return;
-      where = { id: context.responseId, status: { in: ["GRADED", "NEEDS_REVIEW"] } };
+      where = { id: context.responseId, status: { in: ["GRADED", "NEEDS_REVIEW", "FAILED"] } };
     }
     const written = await tx.questionResponse.updateMany({
       where,
@@ -302,6 +307,9 @@ async function persistCorrection(
     });
     if (written.count === 0) return;
     stored = true;
+    if (redraft?.correctedText !== undefined) {
+      await recordCorrectedText(tx, { responseId: context.responseId, submissionId, teacherId: redraft.teacherId, text: redraft.correctedText });
+    }
     // A new draft settles the reason an answer was parked (no diagram found, could not be checked).
     if (redraft) {
       await tx.reviewItem.updateMany({
@@ -429,6 +437,115 @@ export async function redraftDiagramAnswer(input: { responseId: string; teacherI
     { teacherId: input.teacherId },
   );
   return stored ? { ok: true } : { ok: false, message: "This answer was decided while it was being checked, so the new draft was not kept." };
+}
+
+/**
+ * The teacher corrects what was read from the handwriting for one answer, and the answer is marked again from their text.
+ * The text is kept word for word. The new draft replaces the AI's draft (the old one stays in the history), but only for
+ * an answer the teacher has not decided yet and only before the marks are confirmed; the typed text and the new draft are
+ * stored together, so a refused re-mark never leaves changed text behind.
+ */
+export async function redraftWithCorrectedReading(input: { responseId: string; teacherId: string; text: string }): Promise<RedraftResult> {
+  const text = input.text.trim();
+  if (text.length > MAX_CORRECTED_TEXT) return { ok: false, message: `That is too long (the limit is ${MAX_CORRECTED_TEXT} characters).` };
+
+  const response = await prisma.questionResponse.findFirst({
+    where: { id: input.responseId, submission: { assessment: { teacherId: input.teacherId } } },
+    select: {
+      id: true,
+      submissionId: true,
+      gradingResult: true,
+      question: {
+        select: {
+          id: true,
+          questionNumber: true,
+          label: true,
+          questionText: true,
+          maximumMarks: true,
+          answerType: true,
+          rubric: {
+            select: {
+              activeVersion: {
+                select: {
+                  id: true, expectedAnswer: true, partialCreditGuidance: true, markingCheckpoints: true, structuredExpectation: true,
+                  approvedAt: true, criteria: true, followThrough: true, noWorkingRule: true, acceptedAlternatives: true, acceptPercent: true, decimalComma: true,
+                },
+              },
+            },
+          },
+        },
+      },
+      submission: { select: { assessmentId: true, confirmedAt: true, assessment: { select: { subject: true } } } },
+    },
+  });
+  if (!response) return { ok: false, message: "Answer not found." };
+  if (response.submission.confirmedAt) return { ok: false, message: "These marks are already confirmed. Reopen the submission first." };
+  if ((response.gradingResult as { teacherReview?: unknown } | null)?.teacherReview) {
+    return { ok: false, message: "You have already decided this answer, so it was not marked again." };
+  }
+  if (response.question.answerType === "DIAGRAM") return { ok: false, message: "A diagram is not typed text. Use the diagram tools above." };
+
+  const version = response.question.rubric?.activeVersion ?? null;
+  if (!version || !mayMarkAgainst(version)) return { ok: false, message: "The marking scheme for this question is not approved yet." };
+
+  const maximumMarks = Number(response.question.maximumMarks);
+  const scheme = schemeOf(version, maximumMarks);
+  const expectation = (version.structuredExpectation as unknown as StructuredExpectation | null) ?? null;
+  const answerType = answerTypeOf({ answerType: response.question.answerType, criteria: scheme.criteria, numericSolvable: expectation?.solvable === true });
+
+  // An answer that is right or wrong exactly is marked by code from the typed text, with no model.
+  if (answerType === "EXACT_KEY") {
+    return redraftExactKey({
+      responseId: response.id,
+      submissionId: response.submissionId,
+      assessmentId: response.submission.assessmentId,
+      questionId: response.question.id,
+      teacherId: input.teacherId,
+      text,
+      maximumMarks,
+      criteria: scheme.criteria,
+    });
+  }
+
+  const structured = await structureTranscription({
+    questionNumber: response.question.questionNumber,
+    label: response.question.label ?? null,
+    questionText: response.question.questionText,
+    text,
+  });
+  if (!structured.ok) return { ok: false, message: structured.message };
+  const reading = structured.reading;
+
+  const route = routeAnswer({ answerType, reading });
+  if (route.kind === "CANNOT_READ_LANGUAGE") {
+    return { ok: false, message: `This is written in ${route.languages.join(" and ")}, which is not marked automatically. Mark it yourself.` };
+  }
+  if (route.kind !== "MARK") return { ok: false, message: "This answer cannot be marked automatically." };
+
+  const correction = await correctStructuredQuestion({
+    extraReasons: route.extraReasons,
+    questionId: response.question.id,
+    questionNumber: response.question.questionNumber,
+    questionText: response.question.questionText,
+    maximumMarks,
+    subject: response.submission.assessment.subject,
+    expectedAnswer: version.expectedAnswer ?? null,
+    markingCheckpoints: (version.markingCheckpoints as unknown as RubricMarkingCheckpoint[]) ?? [],
+    scheme,
+    partialCreditGuidance: version.partialCreditGuidance ?? null,
+    structuredExpectation: expectation,
+    reading,
+  });
+
+  if (!correction.score) return { ok: false, message: "Marking could not be completed, so nothing was changed. Try again." };
+  const stored = await persistCorrection(
+    { responseId: response.id, maximumMarks, rubricVersionId: version.id, questionId: response.question.id },
+    correction,
+    response.submission.assessmentId,
+    response.submissionId,
+    { teacherId: input.teacherId, correctedText: text },
+  );
+  return stored ? { ok: true } : { ok: false, message: "This answer was decided while it was being marked, so nothing was changed." };
 }
 
 type ConflictKind ="not_attempted" | "missing" | "reader_failed" | "question_failed";

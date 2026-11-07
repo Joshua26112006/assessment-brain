@@ -12,6 +12,7 @@ import StatusBadge, { type BadgeTone } from "@/components/ui/StatusBadge";
 import AnswerReviewForm from "./AnswerReviewForm";
 import SubmissionControls, { type SubmissionStage } from "./SubmissionControls";
 import FindingToggle from "./FindingToggle";
+import CorrectReading from "./CorrectReading";
 import DiagramReview, { type CropView, type PageView, type ReferenceView } from "./DiagramReview";
 import { listDiagramCrops } from "@/lib/figures/diagramCropStore";
 import { listFigures, sharesNumber } from "@/lib/figures/figureStore";
@@ -353,6 +354,10 @@ function AnswerCard({
                 {response.studentAnswerText || <span className="italic text-subtle">Nothing was read for this answer.</span>}
               </p>
             </div>
+
+            {!diagram && (
+              <CorrectReading submissionId={submissionId} responseId={response.id} currentText={response.studentAnswerText} locked={locked} decided={attention.reviewed} />
+            )}
 
             {diagram && (
               <DiagramReview
