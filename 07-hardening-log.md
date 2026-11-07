@@ -44,9 +44,9 @@ These are the items that are genuinely yours. Everything else in this log is eit
 
 After each: 16 users, 9 submissions, 48 responses, 0 mark events, 0 released — unchanged. Phases 4, 6 and 7 changed no schema.
 
-## Problems found while building: 61 (problems 5, 6, 8, 9, 42, 47, 48, 49, 51, 52, 53 and 57 were fixed in later batches)
+## Problems found while building: 63 (problems 5, 6, 8, 9, 42, 47, 48, 49, 51, 52, 53 and 57 were fixed in later batches)
 
-**38 fixed · 17 accepted, decided or observations · 6 open (need you, or a later fix).** Problems 39 to 50 came from the final browser walkthrough, described in its own section below the deviations.
+**38 fixed · 19 accepted, decided or observations · 6 open (need you, or a later fix).** Problems 39 to 50 came from the final browser walkthrough, described in its own section below the deviations.
 
 ### Found when the Phase 1 screens were clicked through in a browser
 
@@ -235,10 +235,34 @@ The second row is why "no reference" always flags: in that run all three runs ag
 **Checked end to end (step 3):** a diagram question on a real drawn sheet, through `evaluateHandwrittenSubmission` with real text detection and the real model: the page with the drawing gave one confident crop for the diagram question and the text-only page gave none; a failure to find diagrams is logged and changes nothing else.
 
 **Checked in the browser (steps 1 and 2):** approving a digital paper finds its figures after approval; each lands under the right question (a figure under Q1, the table under Q2, the cell diagram under Q4); a question that asks the student to draw is told to take a model diagram; upload of a model diagram; placing a figure that follows no question; "Find the paper's figures again".
+## Remaining builds (Nov 7)
+
+Two of the items the plan asked for and the log listed as "not done yet" are now built. No migration was needed (the `TEACHER_TRANSCRIPTION` event kind already existed).
+
+**1. The typed-answer pipeline now records an AI draft.** The older checkpoint pipeline (`assessment/pipeline.ts`) saved an answer's mark with no `AI_DRAFT` event, so the audit trail for those answers began at the teacher's first action. It now writes the answer and the event in one transaction. Commit `65cfc34`. It has no unit test (the pipeline has none today); it was type-checked and the whole suite passes.
+
+**2. "The reading is wrong: fix it" on the review screen.** For any answer that is not a diagram, before the marks are confirmed and before the teacher has decided that answer, the teacher can type what the student actually wrote and press "Save and mark again".
+- The typed text is kept **word for word**. A text-only model call splits it into steps and named values, and anything it returns that is not literally in the typed text is thrown away (an invented step or value would be marked as if the student had written it). The model's own idea of crossed-out or two-attempt work is ignored.
+- A worked answer is then marked by the normal pipeline (three runs, the approved scheme). An answer that is right or wrong exactly (an option letter, a word) is marked **in code from the typed text, with no model**; a near miss goes back to the teacher and the earlier mark no longer stands on the answer.
+- The new draft replaces the AI's draft. Everything is kept: the first reading (`originalText`), a `TEACHER_TRANSCRIPTION` event (before and after, who), the new runs, and the new `AI_DRAFT` (marked as a redraft). The typed text and the new draft are written **together or not at all**: if the answer was decided while the model was working, nothing changes, not even the text.
+- Refused, with a plain message: after confirming; after the teacher accepted or changed that answer; an unapproved scheme; text over 4000 characters; a language other than English (the teacher marks it); marking that could not be completed (the old mark stays); another teacher's answer ("not found").
+- A new draft also resolves the reasons the answer was waiting for the teacher.
+
+**Checked (unit):** 24 new tests (the pure reading builder, the model wrapper including a failing model, the stored-text record, and every refusal above for both routes). The suite is 58 files, 1095 tests, `tsc` clean apart from `LayoutProps` in `layout.tsx`, which needs the generated Next types and is not from this work, and `eslint` clean on the new files.
+
+**Checked on real models (scratch database, nothing live touched):** a worked answer the reader had misread (18 read as 17, draft 1 of 4) was corrected by typing the real working; three runs gave 4, 4, 4, unflagged, and the history shows the old draft, the transcription event, the three runs and the new draft in order. An option letter misread as C and corrected to B went from 0 to 1 with no model call. After accepting the draft, a second correction was refused; after confirming, it was refused; another teacher got "not found". The scratch schema was dropped afterwards.
+
+**Not clicked in a browser:** the button, the text box and its messages (a small client component, same pattern as the diagram buttons). The action behind it was run with real services as above.
+
+| # | Problem | What happened |
+| --- | --- | --- |
+| 62 | A teacher who types a different reading does not change the page itself, only the text. If they typed something the page does not show, the mark follows their text. | **Decided by design:** the teacher decides what the student wrote (D1). The first reading is kept and the change is in the history, so it can be audited. |
+| 63 | The text box is available on every answer that is not a diagram, including one the AI is sure of. | **Observation.** It is hidden after the teacher decides, and every use is recorded. It can be limited to flagged answers if you prefer. |
+
 ## Not verified, and why
 
 - (The paper-review screen and the "scheme changed" flag, listed here before, were opened in a browser in the later batches.)
 - **Real handwriting accuracy**: only synthetic clean-font sheets exist (problem 34).
 - **The 9 live submissions** were never re-marked with the new scheme and routes; nothing here touches them.
 - **Marked copy on real scans**: marker placement is tested on synthetic sheets and in unit tests; real photographs are untested.
-- **Typed-answer assessments** still use the old pipeline; they were left alone.
+- **Typed-answer assessments** still use the old pipeline; it now records an AI draft event (see "Remaining builds"), nothing else changed.
