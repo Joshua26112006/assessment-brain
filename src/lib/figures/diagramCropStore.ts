@@ -17,6 +17,7 @@ export interface StoredCrop {
   confident: boolean;
   foundByInk: boolean;
   foundByModel: boolean;
+  adjustedByTeacher: boolean;
   boxLeft: number;
   boxTop: number;
   boxWidth: number;
@@ -106,7 +107,7 @@ export async function listDiagramCrops(submissionId: string, teacherId: string):
   return prisma.diagramCrop.findMany({
     where: { submissionId, submission: { assessment: { teacherId } } },
     orderBy: [{ pageNumber: "asc" }, { boxTop: "asc" }],
-    select: { id: true, questionId: true, pageNumber: true, confident: true, foundByInk: true, foundByModel: true, boxLeft: true, boxTop: true, boxWidth: true, boxHeight: true },
+    select: { id: true, questionId: true, pageNumber: true, confident: true, foundByInk: true, foundByModel: true, adjustedByTeacher: true, boxLeft: true, boxTop: true, boxWidth: true, boxHeight: true },
   });
 }
 

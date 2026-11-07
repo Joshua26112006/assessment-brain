@@ -1,6 +1,7 @@
 import { detectAndStoreStudentDiagrams } from "@/lib/figures/diagramCropStore";
 import { markDiagramAnswer } from "@/lib/figures/diagramMarking";
-import type { QuestionResponseStatus } from "@prisma/client";
+import type { Prisma, QuestionResponseStatus } from "@prisma/client";
+import { ACTIONABLE_REVIEW_STATUSES } from "@/lib/review-scope";
 import { prisma } from "@/lib/prisma";
 import { createReviewItemIfNeeded } from "@/lib/assessment/pipelineReviewItems";
 import { holdForUnapprovedScheme, mayMarkAgainst } from "@/lib/assessment/schemeGate";
@@ -215,13 +216,21 @@ async function loadQuestionContexts(
   return { contexts, readingQuestions };
 }
 
+/**
+ * Stores an AI draft. By default only for an answer that has no result yet. With `redraft`, it replaces the draft of an
+ * answer that already has one (a teacher fixed a diagram's crop and asked for a new check), but only while the teacher has
+ * not decided that answer and the marks are not confirmed: a teacher's decision is never overwritten. Returns whether
+ * anything was stored.
+ */
 async function persistCorrection(
-  context: QuestionContext,
+  context: Pick<QuestionContext, "responseId" | "maximumMarks" | "rubricVersionId" | "questionId">,
   correction: StructuredQuestionCorrection,
   assessmentId: string,
   submissionId: string,
-): Promise<void> {
+  redraft?: { teacherId: string },
+): Promise<boolean> {
   const status = correction.score ? "GRADED" : "FAILED";
+  let stored = false;
 
   // The response and the record of the AI's own mark are written together, so
   // the audit trail always starts from what the AI actually decided.
@@ -230,8 +239,17 @@ async function persistCorrection(
     // with it while the AI was still working, the late AI result must not
     // overwrite their decision (and no AI_DRAFT is recorded for a mark that
     // was never stored).
+    let where: Prisma.QuestionResponseWhereInput = { id: context.responseId, status: { notIn: TERMINAL_STATUSES } };
+    if (redraft) {
+      const current = await tx.questionResponse.findUnique({
+        where: { id: context.responseId },
+        select: { gradingResult: true, submission: { select: { confirmedAt: true } } },
+      });
+      if (!current || current.submission.confirmedAt || (current.gradingResult as { teacherReview?: unknown } | null)?.teacherReview) return;
+      where = { id: context.responseId, status: { in: ["GRADED", "NEEDS_REVIEW"] } };
+    }
     const written = await tx.questionResponse.updateMany({
-      where: { id: context.responseId, status: { notIn: TERMINAL_STATUSES } },
+      where,
       data: {
         status,
         gradingResult: buildGradingResult(correction, context.maximumMarks) as unknown as object,
@@ -283,6 +301,14 @@ async function persistCorrection(
       },
     });
     if (written.count === 0) return;
+    stored = true;
+    // A new draft settles the reason an answer was parked (no diagram found, could not be checked).
+    if (redraft) {
+      await tx.reviewItem.updateMany({
+        where: { questionResponseId: context.responseId, status: { in: [...ACTIONABLE_REVIEW_STATUSES] } },
+        data: { status: "RESOLVED", reviewerId: redraft.teacherId },
+      });
+    }
     if (correction.score) {
       // Every run's own total is kept (append-only), so the median can always be re-derived and a
       // disagreement between runs can be looked at later.
@@ -313,6 +339,7 @@ async function persistCorrection(
             runTotals: marking?.runTotals ?? null,
             spread: marking?.spread ?? null,
             unsure: marking?.unsure ?? false,
+            ...(redraft ? { redraft: true } : {}),
           },
         },
       });
@@ -335,9 +362,76 @@ async function persistCorrection(
       context: { detail: "Marking could not be completed for this question." },
     });
   }
+  return stored;
 }
 
-type ConflictKind = "not_attempted" | "missing" | "reader_failed" | "question_failed";
+export type RedraftResult = { ok: true } | { ok: false; message: string };
+
+/**
+ * Checks a diagram answer again, after the teacher fixed where the diagram is. It drafts a new mark exactly as the first
+ * time did and replaces the AI's draft, but only for an answer the teacher has not decided and only before the marks are
+ * confirmed. The teacher's own decisions are never touched.
+ */
+export async function redraftDiagramAnswer(input: { responseId: string; teacherId: string }): Promise<RedraftResult> {
+  const response = await prisma.questionResponse.findFirst({
+    where: { id: input.responseId, submission: { assessment: { teacherId: input.teacherId } } },
+    select: {
+      id: true,
+      submissionId: true,
+      gradingResult: true,
+      question: {
+        select: {
+          id: true,
+          questionNumber: true,
+          questionText: true,
+          maximumMarks: true,
+          answerType: true,
+          rubric: {
+            select: {
+              activeVersion: {
+                select: { id: true, approvedAt: true, criteria: true, markingCheckpoints: true, followThrough: true, noWorkingRule: true, acceptedAlternatives: true, acceptPercent: true, decimalComma: true },
+              },
+            },
+          },
+        },
+      },
+      submission: { select: { assessmentId: true, confirmedAt: true, assessment: { select: { subject: true } } } },
+    },
+  });
+  if (!response) return { ok: false, message: "Answer not found." };
+  if (response.submission.confirmedAt) return { ok: false, message: "These marks are already confirmed. Reopen the submission first." };
+  if ((response.gradingResult as { teacherReview?: unknown } | null)?.teacherReview) {
+    return { ok: false, message: "You have already decided this answer, so it was not checked again." };
+  }
+  if (response.question.answerType !== "DIAGRAM") return { ok: false, message: "This is not a diagram question." };
+
+  const version = response.question.rubric?.activeVersion ?? null;
+  if (!version || !mayMarkAgainst(version)) return { ok: false, message: "The marking scheme for this question is not approved yet." };
+
+  const maximumMarks = Number(response.question.maximumMarks);
+  const scheme = schemeOf(version, maximumMarks);
+  const result = await markDiagramAnswer({
+    submissionId: response.submissionId,
+    questionId: response.question.id,
+    questionNumber: response.question.questionNumber,
+    questionText: response.question.questionText,
+    subject: response.submission.assessment.subject,
+    maximumMarks,
+    criteria: scheme.criteria,
+  });
+  if ("held" in result) return { ok: false, message: result.held };
+
+  const stored = await persistCorrection(
+    { responseId: response.id, maximumMarks, rubricVersionId: version.id, questionId: response.question.id },
+    result.correction,
+    response.submission.assessmentId,
+    response.submissionId,
+    { teacherId: input.teacherId },
+  );
+  return stored ? { ok: true } : { ok: false, message: "This answer was decided while it was being checked, so the new draft was not kept." };
+}
+
+type ConflictKind ="not_attempted" | "missing" | "reader_failed" | "question_failed";
 
 const CONFLICT_DETAIL: Record<ConflictKind, string> = {
   missing: "Writing was found for this question, but it could not be read for marking.",

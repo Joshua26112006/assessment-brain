@@ -12,6 +12,9 @@ import StatusBadge, { type BadgeTone } from "@/components/ui/StatusBadge";
 import AnswerReviewForm from "./AnswerReviewForm";
 import SubmissionControls, { type SubmissionStage } from "./SubmissionControls";
 import FindingToggle from "./FindingToggle";
+import DiagramReview, { type CropView, type PageView, type ReferenceView } from "./DiagramReview";
+import { listDiagramCrops } from "@/lib/figures/diagramCropStore";
+import { listFigures, sharesNumber } from "@/lib/figures/figureStore";
 
 export const metadata = { title: "Review marks" };
 
@@ -69,7 +72,7 @@ export default async function ReviewSubmissionPage({
   });
   if (!submission) notFound();
 
-  const [rows, events] = await Promise.all([
+  const [rows, events, crops, figures] = await Promise.all([
     loadSubmissionReview(prisma, submission.id, assessment.id),
     prisma.markEvent.findMany({
       where: { submissionId: submission.id },
@@ -86,7 +89,38 @@ export default async function ReviewSubmissionPage({
         questionResponse: { select: { question: { select: { questionNumber: true, label: true } } } },
       },
     }),
+    // The diagrams cropped from this sheet, and the figures and model diagrams to compare them with.
+    listDiagramCrops(submission.id, session.user.id),
+    listFigures(assessment.id, session.user.id),
   ]);
+
+  // Which answers are diagrams, what was cropped for each, and what each is to be compared with.
+  const questionInfo = new Map(assessment.questions.map((q) => [q.id, { label: q.label, number: q.questionNumber, answerType: q.answerType }]));
+  const diagramFor = (row: ReviewAnswerRow) => {
+    const info = questionInfo.get(row.questionId);
+    const rowCrops: CropView[] = crops
+      .filter((crop) => crop.questionId === row.questionId)
+      .map((crop) => ({
+        id: crop.id,
+        pageNumber: crop.pageNumber,
+        confident: crop.confident,
+        foundByInk: crop.foundByInk,
+        foundByModel: crop.foundByModel,
+        adjustedByTeacher: crop.adjustedByTeacher,
+        box: { left: crop.boxLeft, top: crop.boxTop, width: crop.boxWidth, height: crop.boxHeight },
+      }));
+    const isDiagram = info?.answerType === "DIAGRAM" || rowCrops.length > 0 || Boolean(row.response?.marking?.diagram);
+    if (!isDiagram || row.response === null) return null;
+    const references: ReferenceView[] = figures
+      .filter(
+        (figure) =>
+          figure.questionId === row.questionId ||
+          (figure.role === "QUESTION_FIGURE" && figure.questionId !== null && sharesNumber(info?.label, questionInfo.get(figure.questionId)?.label)),
+      )
+      .map((figure) => ({ id: figure.id, role: figure.role }));
+    return { crops: rowCrops, references, questionNumber: info?.number ?? row.questionNumber };
+  };
+  const pageViews: PageView[] = submission.answerSheetPages.map((page) => ({ id: page.id, pageNumber: page.pageNumber }));
 
   const stage: SubmissionStage = submission.releasedAt ? "RELEASED" : submission.confirmedAt ? "CONFIRMED" : "REVIEWING";
   const locked = stage !== "REVIEWING";
@@ -181,6 +215,9 @@ export default async function ReviewSubmissionPage({
               submissionId={submission.id}
               locked={locked}
               overAttempt={overAttemptIds.has(row.questionId)}
+              assessmentId={assessment.id}
+              diagram={diagramFor(row)}
+              pages={pageViews}
             />
           ))}
         </div>
@@ -249,9 +286,16 @@ function AnswerCard({
   submissionId,
   locked,
   overAttempt,
+  assessmentId,
+  diagram,
+  pages,
 }: {
   row: ReviewAnswerRow;
   submissionId: string;
+  assessmentId: string;
+  /** The cropped diagrams and what to compare them with; null when this answer is not a diagram. */
+  diagram: { crops: CropView[]; references: ReferenceView[]; questionNumber: number } | null;
+  pages: PageView[];
   locked: boolean;
   /** Answered, but a better alternative counts instead: marked, shown with a *, and left out of the total. */
   overAttempt: boolean;
@@ -309,6 +353,21 @@ function AnswerCard({
                 {response.studentAnswerText || <span className="italic text-subtle">Nothing was read for this answer.</span>}
               </p>
             </div>
+
+            {diagram && (
+              <DiagramReview
+                assessmentId={assessmentId}
+                submissionId={submissionId}
+                questionId={row.questionId}
+                questionNumber={diagram.questionNumber}
+                responseId={response.id}
+                crops={diagram.crops}
+                references={diagram.references}
+                pages={pages}
+                locked={locked}
+                decided={attention.reviewed}
+              />
+            )}
 
             {readingSegmentsOf(response.correctionResult).some((segment) => segment.status !== "active" || segment.page > 1) && (
               <div>

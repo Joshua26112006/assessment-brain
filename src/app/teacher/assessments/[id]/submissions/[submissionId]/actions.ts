@@ -14,6 +14,8 @@ import {
   type MarkActionFailure,
 } from "@/lib/assessment/markRelease";
 import { generateMarkedCopy } from "@/lib/assessment/markedCopy";
+import { removeTeacherCrop, saveTeacherCrop } from "@/lib/figures/diagramCropAdmin";
+import { redraftDiagramAnswer } from "@/lib/structuredCorrection/submission";
 
 export type ActionState = { error?: string; blockers?: string[]; success?: string };
 
@@ -190,4 +192,49 @@ export async function submitSubmissionDecision(
   }
 
   return { error: "Choose an action." };
+}
+
+// ---------------------------------------------------------------------------
+// Diagrams: where the student's drawing is, and checking it again
+// ---------------------------------------------------------------------------
+
+/** Draws a crop the finder missed, or redraws one that is wrong. The box arrives as 0 to 1 fractions of the page. */
+export async function saveCropAction(
+  submissionId: string,
+  questionId: string,
+  cropId: string | null,
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const session = await requireTeacherSession();
+  const pageNumber = Number(text(formData, "pageNumber"));
+  if (!Number.isInteger(pageNumber) || pageNumber < 1) return { error: "Choose the page the diagram is on." };
+  const result = await saveTeacherCrop({
+    teacherId: session.user.id,
+    submissionId,
+    questionId,
+    cropId,
+    pageNumber,
+    box: { left: formData.get("left"), top: formData.get("top"), width: formData.get("width"), height: formData.get("height") },
+  });
+  if (!result.ok) return { error: result.message };
+  refresh(submissionId);
+  return { success: "Crop saved. You can now have the diagram checked again." };
+}
+
+export async function removeCropAction(submissionId: string, cropId: string, _prev: ActionState): Promise<ActionState> {
+  const session = await requireTeacherSession();
+  const result = await removeTeacherCrop({ teacherId: session.user.id, submissionId, cropId });
+  if (!result.ok) return { error: result.message };
+  refresh(submissionId);
+  return { success: "Removed." };
+}
+
+/** Checks a diagram again with the crop as it now is. Never touches an answer the teacher has already decided. */
+export async function redraftDiagramAction(submissionId: string, responseId: string, _prev: ActionState): Promise<ActionState> {
+  const session = await requireTeacherSession();
+  const result = await redraftDiagramAnswer({ responseId, teacherId: session.user.id });
+  if (!result.ok) return { error: result.message };
+  refresh(submissionId);
+  return { success: "Checked again. The new draft is shown below." };
 }

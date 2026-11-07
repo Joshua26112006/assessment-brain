@@ -1074,6 +1074,9 @@ model DiagramCrop {
   foundByInk   Boolean
   foundByModel Boolean
 
+  /// A teacher drew or corrected this crop themselves; it is then certain by definition.
+  adjustedByTeacher Boolean @default(false)
+
   createdAt DateTime @default(now())
 
   @@index([submissionId])
