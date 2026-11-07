@@ -242,7 +242,7 @@ describe("changeMark", () => {
 
   it("can give a mark to an answer the AI could not mark, and makes it a graded answer", async () => {
     seed([{ questionId: "q1", status: "NEEDS_REVIEW", gradingResult: null }]);
-    const result = await changeMark({ teacherId: TEACHER, responseId: "r1", marks: 2 });
+    const result = await changeMark({ teacherId: TEACHER, responseId: "r1", marks: 2, reason: "marked by hand" });
     expect(result).toMatchObject({ ok: true, awardedMarks: 2 });
     expect(response("r1").status).toBe("GRADED");
     expect(response("r1").gradingResult.teacherReview.previousAwardedMarks).toBeNull();
@@ -250,13 +250,21 @@ describe("changeMark", () => {
   });
 
   it("stores a note for the student", async () => {
-    await changeMark({ teacherId: TEACHER, responseId: "r1", marks: 2, note: " Good method. " });
+    await changeMark({ teacherId: TEACHER, responseId: "r1", marks: 2, reason: "method shown", note: " Good method. " });
     expect(response("r1").annotationResult.teacherFeedback).toMatchObject({ note: "Good method.", reviewerId: TEACHER });
     expect(db.events[0].payload).toEqual({ note: "Good method." });
   });
 
+  it.each([[undefined], [null], [""], ["   "]])("refuses a change with no reason (%j) and changes nothing", async (reason) => {
+    const result = await changeMark({ teacherId: TEACHER, responseId: "r1", marks: 2, reason });
+    expect(result).toMatchObject({ ok: false, code: "REASON_REQUIRED" });
+    expect(response("r1").gradingResult.awardedMarks).toBe(3);
+    expect(response("r1").gradingResult.teacherReview).toBeUndefined();
+    expect(db.events).toHaveLength(0);
+  });
+
   it.each([[-1], [4.5], [1.25], [Number.NaN]])("rejects %d and changes nothing", async (marks) => {
-    const result = await changeMark({ teacherId: TEACHER, responseId: "r1", marks });
+    const result = await changeMark({ teacherId: TEACHER, responseId: "r1", marks, reason: "why" });
     expect(result).toMatchObject({ ok: false, code: "INVALID_MARKS" });
     expect(response("r1").gradingResult.awardedMarks).toBe(3);
     expect(db.events).toHaveLength(0);
@@ -264,14 +272,14 @@ describe("changeMark", () => {
 
   it("closes the answer's open review items", async () => {
     db.reviewItems.push({ id: "i1", questionResponseId: "r1", status: "IN_REVIEW" });
-    await changeMark({ teacherId: TEACHER, responseId: "r1", marks: 2 });
+    await changeMark({ teacherId: TEACHER, responseId: "r1", marks: 2, reason: "checked" });
     expect(db.reviewItems[0].status).toBe("RESOLVED");
   });
 
   it("refuses once the submission is confirmed, and for another teacher", async () => {
-    expect(await changeMark({ teacherId: OTHER_TEACHER, responseId: "r1", marks: 2 })).toMatchObject({ code: "NOT_FOUND" });
+    expect(await changeMark({ teacherId: OTHER_TEACHER, responseId: "r1", marks: 2, reason: "x" })).toMatchObject({ code: "NOT_FOUND" });
     db.submissions[0].confirmedAt = new Date();
-    expect(await changeMark({ teacherId: TEACHER, responseId: "r1", marks: 2 })).toMatchObject({ code: "LOCKED" });
+    expect(await changeMark({ teacherId: TEACHER, responseId: "r1", marks: 2, reason: "x" })).toMatchObject({ code: "LOCKED" });
     expect(response("r1").gradingResult.awardedMarks).toBe(3);
     expect(db.events).toHaveLength(0);
   });
@@ -454,7 +462,7 @@ describe("confirmSubmission", () => {
     await acceptAllSure({ teacherId: TEACHER, submissionId: "sub1" });
     expect(await confirmSubmission({ teacherId: TEACHER, submissionId: "sub1" })).toMatchObject({ code: "BLOCKED" });
 
-    await changeMark({ teacherId: TEACHER, responseId: "r3", marks: 2 });
+    await changeMark({ teacherId: TEACHER, responseId: "r3", marks: 2, reason: "checked" });
     expect(await confirmSubmission({ teacherId: TEACHER, submissionId: "sub1" })).toMatchObject({ ok: true, awardedMarks: 8 }); // 3 + 3 drafted, 2 entered by the teacher
   });
 
@@ -469,7 +477,7 @@ describe("confirmSubmission", () => {
   it("locks every mark change afterwards", async () => {
     await acceptAllSure({ teacherId: TEACHER, submissionId: "sub1" });
     await confirmSubmission({ teacherId: TEACHER, submissionId: "sub1" });
-    expect(await changeMark({ teacherId: TEACHER, responseId: "r1", marks: 0 })).toMatchObject({ code: "LOCKED" });
+    expect(await changeMark({ teacherId: TEACHER, responseId: "r1", marks: 0, reason: "x" })).toMatchObject({ code: "LOCKED" });
     expect(response("r1").gradingResult.awardedMarks).toBe(3);
   });
 
@@ -548,7 +556,7 @@ describe("reopenSubmission", () => {
     expect(db.submissions[0]).toMatchObject({ confirmedAt: null, releasedAt: null, confirmedById: null, releasedById: null });
     const event = db.events.find((e) => e.kind === "SUBMISSION_REOPENED");
     expect(event).toMatchObject({ reason: "parent query", payload: { wasReleased: true } });
-    expect(await changeMark({ teacherId: TEACHER, responseId: "r1", marks: 2 })).toMatchObject({ ok: true });
+    expect(await changeMark({ teacherId: TEACHER, responseId: "r1", marks: 2, reason: "x" })).toMatchObject({ ok: true });
   });
 
   it("does nothing, and writes nothing, for a submission that was never confirmed", async () => {

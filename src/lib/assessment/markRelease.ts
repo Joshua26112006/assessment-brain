@@ -43,6 +43,7 @@ export type MarkActionFailureCode =
   | "LOCKED"
   | "NO_DRAFT_MARK"
   | "INVALID_MARKS"
+  | "REASON_REQUIRED"
   | "BLOCKED"
   | "NOT_CONFIRMED";
 
@@ -405,8 +406,8 @@ export async function changeMark(input: {
   teacherId: string;
   responseId: string;
   marks: number;
-  /** Why, in the teacher's words. Recorded when given; not required. */
-  reason?: string | null;
+  /** Why, in the teacher's words. Required: every change of a mark is explained, so the history can always say why. */
+  reason: string | null | undefined;
   /** A note for the student, written alongside the new mark. */
   note?: string | null;
 }): Promise<AnswerActionResult> {
@@ -418,6 +419,10 @@ export async function changeMark(input: {
     const maximumMarks = Number(response.question.maximumMarks);
     const valid = validateTeacherMark(input.marks, maximumMarks);
     if (!valid.ok) return { ok: false, code: "INVALID_MARKS", message: valid.message };
+    const reason = input.reason?.trim() ?? "";
+    if (reason.length === 0) {
+      return { ok: false, code: "REASON_REQUIRED", message: "Give a reason for changing the mark. It is kept in the history." };
+    }
 
     const previous = parseGradingResult(response.gradingResult);
     const decidedAt = new Date().toISOString();
@@ -488,7 +493,7 @@ export async function changeMark(input: {
       marks: valid.marks,
       previousMarks: previous?.awardedMarks ?? null,
       actorId: input.teacherId,
-      reason: input.reason,
+      reason,
       payload: { note },
     });
     await recalculateSubmissionStatus(tx, response.submissionId);

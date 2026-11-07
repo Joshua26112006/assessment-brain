@@ -95,7 +95,7 @@ export default function AnswerReviewForm({
 
       <div>
         <label htmlFor={`reason-${responseId}`} className="block text-xs font-medium text-muted">
-          Reason for changing the mark <span className="font-normal text-subtle">(optional, kept in the history)</span>
+          Reason for changing the mark <span className="font-normal text-subtle">(required when you change the mark; kept in the history)</span>
         </label>
         <input
           id={`reason-${responseId}`}
